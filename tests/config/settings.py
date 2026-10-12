@@ -19,6 +19,11 @@ INSTALLED_APPS = (
     'django.contrib.contenttypes',
     'pgtrigger',
     'postgres_denormalize',
+    'tenancy',
+    'catalog',
+    # This app has no models of its own. Its tests declare their models in isolated registries, and Django needs the
+    # app here to find the app label of those models.
+    'isolated',
 )
 
 DATABASES = {
@@ -30,3 +35,7 @@ DATABASES = {
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 
 USE_TZ = True
+
+POSTGRES_DENORMALIZE = {
+    'EXCLUDE_MODELS': ['catalog.ItemAudit'],
+}

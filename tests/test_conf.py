@@ -1,0 +1,143 @@
+from catalog.models import ItemAudit
+from django.core.exceptions import ImproperlyConfigured
+from django.test import SimpleTestCase, override_settings
+from tenancy.models import Task
+
+from postgres_denormalize import conf
+
+
+class GetSettingTestCase(SimpleTestCase):
+    @override_settings(POSTGRES_DENORMALIZE={})
+    def test_every_key_falls_back_to_its_default(self):
+        """
+        Case: POSTGRES_DENORMALIZE is an empty dict, and every key is read.
+        Expected: Each key has its default value.
+        """
+        self.assertEqual(conf.get_setting('EXCLUDE_MODELS'), ())
+        self.assertIsNone(conf.get_setting('EXCLUDE_MODELS_CALLBACK'))
+
+    @override_settings()
+    def test_a_project_without_the_setting_gets_the_defaults(self):
+        """
+        Case: The project has no POSTGRES_DENORMALIZE setting.
+        Expected: The project's setting reads as an empty dict, and Task is not excluded.
+        """
+        from django.conf import settings
+
+        del settings.POSTGRES_DENORMALIZE
+
+        self.assertEqual(conf.user_settings(), {})
+        self.assertFalse(conf.is_excluded(Task))
+
+
+def exclude_tasks(model):
+    return model._meta.model_name == 'task'
+
+
+class IsExcludedTestCase(SimpleTestCase):
+    def test_a_listed_label_excludes_its_model_in_any_letter_case(self):
+        """
+        Case: EXCLUDE_MODELS lists catalog.ItemAudit as in the test settings, and then as 'CATALOG.itemaudit'.
+        Expected: ItemAudit is excluded with either spelling, and Task is not excluded.
+        """
+        self.assertTrue(conf.is_excluded(ItemAudit))
+        self.assertFalse(conf.is_excluded(Task))
+
+        with override_settings(POSTGRES_DENORMALIZE={'EXCLUDE_MODELS': ['CATALOG.itemaudit']}):
+            self.assertTrue(conf.is_excluded(ItemAudit))
+
+    @override_settings(POSTGRES_DENORMALIZE={'EXCLUDE_MODELS_CALLBACK': 'catalog.exclusions.is_audit_model'})
+    def test_a_callback_given_as_a_dotted_path_decides(self):
+        """
+        Case: EXCLUDE_MODELS_CALLBACK is the dotted path of a callback that excludes models whose name ends in audit.
+        Expected: ItemAudit is excluded, and Task is not.
+        """
+        self.assertTrue(conf.is_excluded(ItemAudit))
+        self.assertFalse(conf.is_excluded(Task))
+
+    @override_settings(POSTGRES_DENORMALIZE={'EXCLUDE_MODELS_CALLBACK': exclude_tasks})
+    def test_a_callback_given_as_a_callable_decides(self):
+        """
+        Case: EXCLUDE_MODELS_CALLBACK is a function that excludes Task.
+        Expected: Task is excluded, and ItemAudit is not.
+        """
+        self.assertTrue(conf.is_excluded(Task))
+        self.assertFalse(conf.is_excluded(ItemAudit))
+
+    @override_settings(
+        POSTGRES_DENORMALIZE={'EXCLUDE_MODELS': ['catalog.ItemAudit'], 'EXCLUDE_MODELS_CALLBACK': exclude_tasks}
+    )
+    def test_either_one_is_enough(self):
+        """
+        Case: EXCLUDE_MODELS lists catalog.ItemAudit, and EXCLUDE_MODELS_CALLBACK is a function that excludes Task.
+        Expected: Both ItemAudit and Task are excluded.
+        """
+        self.assertTrue(conf.is_excluded(ItemAudit))
+        self.assertTrue(conf.is_excluded(Task))
+
+    @override_settings(POSTGRES_DENORMALIZE={})
+    def test_no_model_is_excluded_without_either(self):
+        """
+        Case: Neither EXCLUDE_MODELS nor EXCLUDE_MODELS_CALLBACK is set.
+        Expected: ItemAudit is not excluded.
+        """
+        self.assertFalse(conf.is_excluded(ItemAudit))
+
+
+class ValidateSettingsTestCase(SimpleTestCase):
+    def assertRefused(self, setting, fragment):
+        with override_settings(POSTGRES_DENORMALIZE=setting):
+            with self.assertRaisesMessage(ImproperlyConfigured, fragment):
+                conf.validate_settings()
+
+    def test_the_test_project_setting_is_valid(self):
+        """
+        Case: The setting of the test project is validated.
+        Expected: No error.
+        """
+        conf.validate_settings()
+
+    def test_refuses_a_setting_that_is_not_a_dict(self):
+        """
+        Case: POSTGRES_DENORMALIZE is a list.
+        Expected: An ImproperlyConfigured error that says that the setting must be a dict.
+        """
+        self.assertRefused(['EXCLUDE_MODELS'], 'must be a dict')
+
+    def test_refuses_an_unknown_key(self):
+        """
+        Case: POSTGRES_DENORMALIZE has the unknown key EXCLUDE.
+        Expected: An ImproperlyConfigured error that names the key.
+        """
+        self.assertRefused({'EXCLUDE': None}, 'unknown keys: EXCLUDE')
+
+    def test_refuses_excluded_models_that_are_not_a_list_of_labels(self):
+        """
+        Case: EXCLUDE_MODELS is a string, and then a list with the entry 'ItemAudit', which is not a model label.
+        Expected: For the string, an ImproperlyConfigured error that asks for a list of model labels. For the list, an
+                  ImproperlyConfigured error that names the entry.
+        """
+        self.assertRefused({'EXCLUDE_MODELS': 'catalog.ItemAudit'}, 'must be a list of model labels')
+        self.assertRefused({'EXCLUDE_MODELS': ['ItemAudit']}, "contains 'ItemAudit'")
+
+    def test_refuses_a_callback_that_cannot_be_imported(self):
+        """
+        Case: EXCLUDE_MODELS_CALLBACK is a dotted path to a function that does not exist.
+        Expected: An ImproperlyConfigured error that says that the path cannot be imported.
+        """
+        self.assertRefused({'EXCLUDE_MODELS_CALLBACK': 'catalog.exclusions.missing'}, 'cannot be imported')
+
+    def test_refuses_a_callback_that_is_not_callable(self):
+        """
+        Case: EXCLUDE_MODELS_CALLBACK is the integer 42.
+        Expected: An ImproperlyConfigured error that asks for a callable or a dotted path.
+        """
+        self.assertRefused({'EXCLUDE_MODELS_CALLBACK': 42}, 'must be a callable or a dotted path')
+
+    @override_settings(POSTGRES_DENORMALIZE={'EXCLUDE_MODELS_CALLBACK': exclude_tasks})
+    def test_accepts_a_callable_callback(self):
+        """
+        Case: EXCLUDE_MODELS_CALLBACK is a function.
+        Expected: No error.
+        """
+        conf.validate_settings()
