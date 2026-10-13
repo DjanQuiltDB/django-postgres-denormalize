@@ -25,6 +25,8 @@ The package has these modules:
   their stored values with their lookup paths.
 - ``triggers`` has the triggers that keep every denormalized field correct, and the registration that derives them from
   the fields while ``PostgresDenormalizeConfig.ready()`` runs.
+- ``operations`` has ``BackfillDenormalized``, the migration operation that corrects stored values before a migration
+  installs or changes the triggers.
 - ``conf`` has the ``POSTGRES_DENORMALIZE`` setting, including ``EXCLUDE_MODELS`` and ``EXCLUDE_MODELS_CALLBACK``,
   which name the models that this package skips.
 """

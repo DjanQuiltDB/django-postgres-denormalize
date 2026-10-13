@@ -678,12 +678,13 @@ def get_denormalized_fields(model):
     Return the denormalized fields of both kinds that ``model`` declares, in declaration order.
 
     Only the fields whose column is in the table of ``model`` count. A model that inherits from a concrete parent, and a
-    proxy model, therefore get no triggers and no drift filter for the fields of the parent, because the triggers of
-    the parent already keep those columns correct.
+    proxy model, therefore get no triggers, no drift filter and no backfill for the fields of the parent, because the
+    triggers of the parent already keep those columns correct.
 
-    For an excluded model (see ``EXCLUDE_MODELS``) this returns no fields, so the model gets no triggers and no drift
-    filter. The usual reason to exclude a model is an audit table that copies the fields of a tracked model, including
-    the denormalized ones. Its rows record the value that a copy had at the time, so no trigger may rewrite them.
+    For an excluded model (see ``EXCLUDE_MODELS``) this returns no fields, so the model gets no triggers, no drift
+    filter and no backfill. The usual reason to exclude a model is an audit table that copies the fields of a tracked
+    model, including the denormalized ones. Its rows record the value that a copy had at the time, so no trigger may
+    rewrite them.
     """
     if conf.is_excluded(model):
         return []
