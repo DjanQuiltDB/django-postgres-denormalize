@@ -5,6 +5,7 @@ Settings for the test project. This is not a template for a real deployment.
 import os
 
 import dj_database_url
+from django.db.backends.postgresql.psycopg_any import IsolationLevel
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -27,9 +28,13 @@ INSTALLED_APPS = (
 )
 
 DATABASES = {
-    'default': dj_database_url.parse(
-        os.environ.get('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/test_db')
-    )
+    'default': {
+        **dj_database_url.parse(
+            os.environ.get('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/test_db')
+        ),
+        # The isolation level that system check W303 asks for, so the suite also runs the triggers at that level.
+        'OPTIONS': {'isolation_level': IsolationLevel.SERIALIZABLE},
+    }
 }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
@@ -38,4 +43,13 @@ USE_TZ = True
 
 POSTGRES_DENORMALIZE = {
     'EXCLUDE_MODELS': ['catalog.ItemAudit'],
+    'REDUNDANT_COPY_CHECK': {
+        'LEVEL': 'error',
+        'ALLOWED': {
+            'catalog.Item.home_section': 'A second section that is chosen independently, and that only rarely matches '
+            'the section of the category.',
+        },
+    },
+    'ORDERING_CHECK_LEVEL': 'error',
+    'ISOLATION_CHECK_LEVEL': 'error',
 }

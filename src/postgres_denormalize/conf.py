@@ -5,11 +5,20 @@ package reads it.
 Every key is optional::
 
     POSTGRES_DENORMALIZE = {
-        # Models that this package skips: no triggers, no drift filter, no backfill. This is for models that have
-        # denormalized fields on purpose without keeping them in sync, such as audit tables. A model is excluded when
-        # either key says so.
+        # Models that this package skips: no triggers, no drift filter, no backfill, no project checks. This is for
+        # models that have denormalized fields on purpose without keeping them in sync, such as audit tables. A model is
+        # excluded when either key says so.
         'EXCLUDE_MODELS': ['tenancy.TaskAudit'],  # model labels, matched case-insensitively
         'EXCLUDE_MODELS_CALLBACK': 'myproject.audit.is_audit_model',  # a callable, or a dotted path to one
+        'REDUNDANT_COPY_CHECK': {
+            'LEVEL': 'warning',  # or 'error', or 'off'
+            'APPS': None,  # app labels to check; None checks every app outside site-packages
+            'ALLOWED': {'app_label.Model.field': 'why this foreign key may differ from the other route'},
+            'MAX_DEPTH': 4,
+        },
+        'ORDERING_CHECK_LEVEL': 'warning',  # or 'error', or 'off'
+        # The level of the check that each database that stores copies runs transactions at SERIALIZABLE.
+        'ISOLATION_CHECK_LEVEL': 'warning',  # or 'error', or 'off'
     }
 
 The values are read each time they are needed, not once at start-up, so ``override_settings`` in a test takes effect.
@@ -21,9 +30,21 @@ from django.utils.module_loading import import_string
 
 SETTING_NAME = 'POSTGRES_DENORMALIZE'
 
+LEVELS = ('off', 'warning', 'error')
+
+DEFAULT_REDUNDANT_COPY_CHECK = {
+    'LEVEL': 'warning',
+    'APPS': None,
+    'ALLOWED': {},
+    'MAX_DEPTH': 4,
+}
+
 DEFAULTS = {
     'EXCLUDE_MODELS': (),
     'EXCLUDE_MODELS_CALLBACK': None,
+    'REDUNDANT_COPY_CHECK': DEFAULT_REDUNDANT_COPY_CHECK,
+    'ORDERING_CHECK_LEVEL': 'warning',
+    'ISOLATION_CHECK_LEVEL': 'warning',
 }
 
 
@@ -36,9 +57,13 @@ def user_settings():
 
 def get_setting(key):
     """
-    Return the value of one key, falling back to its default.
+    Return the value of one key, or its default when the project does not set it. ``REDUNDANT_COPY_CHECK`` is merged
+    key by key, so a project can set only ``LEVEL``.
     """
-    return user_settings().get(key, DEFAULTS[key])
+    value = user_settings().get(key, DEFAULTS[key])
+    if key == 'REDUNDANT_COPY_CHECK':
+        return {**DEFAULT_REDUNDANT_COPY_CHECK, **value}
+    return value
 
 
 def excluded_labels():
@@ -73,8 +98,8 @@ def validate_settings():
     """
     Raise ``ImproperlyConfigured`` for a ``POSTGRES_DENORMALIZE`` setting that this package cannot use.
 
-    ``PostgresDenormalizeConfig.ready()`` calls this, so a misspelt key stops the project from starting rather than
-    being ignored.
+    ``PostgresDenormalizeConfig.ready()`` calls this, so a misspelt key or level stops the project from starting and is
+    not ignored.
     """
     configured = user_settings()
     if not isinstance(configured, dict):
@@ -107,5 +132,31 @@ def validate_settings():
             f'{SETTING_NAME}["EXCLUDE_MODELS_CALLBACK"] must be a callable or a dotted path to one.'
         )
 
+    redundant = configured.get('REDUNDANT_COPY_CHECK', {})
+    if not isinstance(redundant, dict):
+        raise ImproperlyConfigured(f'{SETTING_NAME}["REDUNDANT_COPY_CHECK"] must be a dict.')
+    unknown = sorted(set(redundant) - set(DEFAULT_REDUNDANT_COPY_CHECK))
+    if unknown:
+        raise ImproperlyConfigured(f'{SETTING_NAME}["REDUNDANT_COPY_CHECK"] has unknown keys: {", ".join(unknown)}.')
 
-__all__ = ['DEFAULTS', 'get_setting', 'is_excluded', 'validate_settings']
+    merged = get_setting('REDUNDANT_COPY_CHECK')
+    _validate_level('REDUNDANT_COPY_CHECK"]["LEVEL', merged['LEVEL'])
+    if merged['APPS'] is not None and not isinstance(merged['APPS'], (list, tuple, set)):
+        raise ImproperlyConfigured(f'{SETTING_NAME}["REDUNDANT_COPY_CHECK"]["APPS"] must be None or a list of labels.')
+    if not isinstance(merged['ALLOWED'], dict):
+        raise ImproperlyConfigured(f'{SETTING_NAME}["REDUNDANT_COPY_CHECK"]["ALLOWED"] must be a dict.')
+    if not isinstance(merged['MAX_DEPTH'], int) or merged['MAX_DEPTH'] < 2:
+        raise ImproperlyConfigured(
+            f'{SETTING_NAME}["REDUNDANT_COPY_CHECK"]["MAX_DEPTH"] must be an integer of 2 or more.'
+        )
+
+    _validate_level('ORDERING_CHECK_LEVEL', get_setting('ORDERING_CHECK_LEVEL'))
+    _validate_level('ISOLATION_CHECK_LEVEL', get_setting('ISOLATION_CHECK_LEVEL'))
+
+
+def _validate_level(key, value):
+    if value not in LEVELS:
+        raise ImproperlyConfigured(f'{SETTING_NAME}["{key}"] is {value!r}; use one of {", ".join(LEVELS)}.')
+
+
+__all__ = ['DEFAULTS', 'LEVELS', 'get_setting', 'is_excluded', 'validate_settings']

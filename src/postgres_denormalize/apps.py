@@ -6,7 +6,7 @@ class PostgresDenormalizeConfig(AppConfig):
     verbose_name = 'PostgreSQL denormalize'
 
     def ready(self):
-        from postgres_denormalize import conf
+        from postgres_denormalize import checks, conf  # noqa: F401 -- importing checks registers them.
         from postgres_denormalize.fields import resolve_denormalized_fields
         from postgres_denormalize.triggers import register_triggers
 

@@ -27,8 +27,8 @@ The package has these modules:
   the fields while ``PostgresDenormalizeConfig.ready()`` runs.
 - ``operations`` has ``BackfillDenormalized``, the migration operation that corrects stored values before a migration
   installs or changes the triggers.
-- ``conf`` has the ``POSTGRES_DENORMALIZE`` setting, including ``EXCLUDE_MODELS`` and ``EXCLUDE_MODELS_CALLBACK``,
-  which name the models that this package skips.
+- ``checks`` has the system checks. ``conf`` has the ``POSTGRES_DENORMALIZE`` setting, including ``EXCLUDE_MODELS``
+  and ``EXCLUDE_MODELS_CALLBACK``, which name the models that this package skips.
 """
 
 __version__ = '1.0.0'

@@ -492,7 +492,7 @@ def register_triggers():
     order on every run.
 
     pgtrigger appends a registered trigger to ``Meta.triggers`` and to the migration state of its model only while
-    ``PGTRIGGER_MIGRATIONS`` is on, which is pgtrigger's default.
+    ``PGTRIGGER_MIGRATIONS`` is on. System check ``postgres_denormalize.E301`` requires that.
 
     Calling this function a second time changes nothing. The trigger classes compare equal by value, and pgtrigger's
     registry ignores a trigger that is equal to a trigger that it already has under the same name.

@@ -15,6 +15,20 @@ class GetSettingTestCase(SimpleTestCase):
         """
         self.assertEqual(conf.get_setting('EXCLUDE_MODELS'), ())
         self.assertIsNone(conf.get_setting('EXCLUDE_MODELS_CALLBACK'))
+        self.assertEqual(conf.get_setting('ORDERING_CHECK_LEVEL'), 'warning')
+        self.assertEqual(conf.get_setting('ISOLATION_CHECK_LEVEL'), 'warning')
+        self.assertEqual(conf.get_setting('REDUNDANT_COPY_CHECK'), conf.DEFAULT_REDUNDANT_COPY_CHECK)
+
+    @override_settings(POSTGRES_DENORMALIZE={'REDUNDANT_COPY_CHECK': {'LEVEL': 'off'}})
+    def test_the_redundant_copy_check_is_merged_key_by_key(self):
+        """
+        Case: REDUNDANT_COPY_CHECK sets only LEVEL to 'off'.
+        Expected: LEVEL is 'off', and MAX_DEPTH has its default value of 4.
+        """
+        merged = conf.get_setting('REDUNDANT_COPY_CHECK')
+
+        self.assertEqual(merged['LEVEL'], 'off')
+        self.assertEqual(merged['MAX_DEPTH'], 4)
 
     @override_settings()
     def test_a_project_without_the_setting_gets_the_defaults(self):
@@ -141,3 +155,50 @@ class ValidateSettingsTestCase(SimpleTestCase):
         Expected: No error.
         """
         conf.validate_settings()
+
+    def test_refuses_a_redundant_copy_check_that_is_not_a_dict(self):
+        """
+        Case: REDUNDANT_COPY_CHECK is the string 'error'.
+        Expected: An ImproperlyConfigured error that says that REDUNDANT_COPY_CHECK must be a dict.
+        """
+        self.assertRefused({'REDUNDANT_COPY_CHECK': 'error'}, '["REDUNDANT_COPY_CHECK"] must be a dict')
+
+    def test_refuses_an_unknown_redundant_copy_check_key(self):
+        """
+        Case: REDUNDANT_COPY_CHECK has the unknown key LEVLE.
+        Expected: An ImproperlyConfigured error that names the key.
+        """
+        self.assertRefused({'REDUNDANT_COPY_CHECK': {'LEVLE': 'error'}}, 'unknown keys: LEVLE')
+
+    def test_refuses_an_unknown_level(self):
+        """
+        Case: The LEVEL of REDUNDANT_COPY_CHECK is 'loud', then ORDERING_CHECK_LEVEL is 'quiet', and then
+              ISOLATION_CHECK_LEVEL is 'strict'.
+        Expected: An ImproperlyConfigured error that names the level, for each of them.
+        """
+        self.assertRefused({'REDUNDANT_COPY_CHECK': {'LEVEL': 'loud'}}, "is 'loud'")
+        self.assertRefused({'ORDERING_CHECK_LEVEL': 'quiet'}, "is 'quiet'")
+        self.assertRefused({'ISOLATION_CHECK_LEVEL': 'strict'}, "is 'strict'")
+
+    def test_refuses_apps_that_are_not_a_list(self):
+        """
+        Case: The APPS of REDUNDANT_COPY_CHECK is the string 'tenancy'.
+        Expected: An ImproperlyConfigured error that asks for a list of labels.
+        """
+        self.assertRefused({'REDUNDANT_COPY_CHECK': {'APPS': 'tenancy'}}, 'list of labels')
+
+    def test_refuses_allowed_entries_that_are_not_a_dict(self):
+        """
+        Case: The ALLOWED of REDUNDANT_COPY_CHECK is a list.
+        Expected: An ImproperlyConfigured error that says that ALLOWED must be a dict.
+        """
+        self.assertRefused(
+            {'REDUNDANT_COPY_CHECK': {'ALLOWED': ['tenancy.Task.project']}}, '["ALLOWED"] must be a dict'
+        )
+
+    def test_refuses_a_depth_below_two(self):
+        """
+        Case: The MAX_DEPTH of REDUNDANT_COPY_CHECK is 1.
+        Expected: An ImproperlyConfigured error that asks for an integer of 2 or more.
+        """
+        self.assertRefused({'REDUNDANT_COPY_CHECK': {'MAX_DEPTH': 1}}, 'integer of 2 or more')
