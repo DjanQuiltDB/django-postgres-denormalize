@@ -70,8 +70,10 @@ is on the owner's table, but it is named after the leaf that it serves. For the 
 
 .. code-block:: postgresql
 
-    -- on tenancy_project, WHEN (OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id"
+    -- on tenancy_project, WHEN ((OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id"
     --     OR OLD."name" IS DISTINCT FROM NEW."name")
+    --     AND NOT COALESCE('pgtrigger_denormalize_cascade_tenancy_task_de430' = ANY(string_to_array(
+    --         current_setting('postgres_denormalize.deferred_cascades', true), ',')), false))
     UPDATE "tenancy_task" leaf
     SET "tenant_id" = NEW."tenant_id",
         "project_name" = NEW."name"
@@ -79,10 +81,14 @@ is on the owner's table, but it is named after the leaf that it serves. For the 
       AND (leaf."tenant_id" IS DISTINCT FROM NEW."tenant_id"
         OR leaf."project_name" IS DISTINCT FROM NEW."name");
 
+``de430`` is a hash that pgtrigger appends to the trigger's name.
+
 * **One trigger per leaf and owner**, which rewrites all of that leaf's copies in one statement. An ancestor that is
   renamed and moved at once writes each leaf row once.
 * **A WHEN condition on the copied columns.** Every other UPDATE of the owner, such as of a counter or a timestamp,
-  never calls the function.
+  never calls the function. The second half of the condition lets :func:`~postgres_denormalize.batch.defer_cascades`
+  skip the trigger for a batch (see :doc:`/guides/batch_updates`). With ``DEFERRABLE_CASCADES = False``, the condition
+  does not have that second half.
 * **Only rows that change are written.** A leaf row whose copies would not change is not written. Moving a row to
   another parent of the same tenant, for example, does not touch the rows below it: no write, no lock, no history row.
 * **Deep paths are walked.** A change two hops above the leaf rewrites the leaves through the tables in between.
@@ -91,7 +97,7 @@ is on the owner's table, but it is named after the leaf that it serves. For the 
   and PostgreSQL does not combine transition tables with an ``UPDATE OF column`` list. Such a trigger would therefore
   fire, and build transition tables, for every UPDATE of the owner's table. With the row-level design, single-row edits
   are cheap, and the cost of bulk reparenting is proportional to the number of moved rows. See
-  :doc:`/getting_started/when_to_use`.
+  :doc:`/getting_started/when_to_use`, or wrap a large batch in a batch helper (:doc:`/guides/batch_updates`).
 
 Rows that a soft-delete library has only marked as deleted are rewritten too, so restoring one never brings back an
 out-of-date copy.
@@ -117,7 +123,7 @@ function runs the same statement as the cascade trigger:
         OR leaf."project_name" IS DISTINCT FROM NEW."name");
 
 When the rows are inserted in the usual order, the new ancestor row has no leaf rows yet, so each insert costs one
-indexed lookup that writes nothing.
+indexed lookup that writes nothing. The batch helpers do not skip the fill triggers.
 
 
 Triggers on a model of an installed package
@@ -145,6 +151,8 @@ package's own model still runs them:
     class Review(models.Model):
         reviewer = models.ForeignKey(Reviewer, on_delete=models.CASCADE)
         reviewer_email = DenormalizedField('reviewer__email')
+
+The batch helpers accept either the proxy model or the package's model as the owner.
 
 
 .. _concurrent_writes:

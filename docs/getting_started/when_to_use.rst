@@ -41,13 +41,16 @@ Reasons not to
     triggers and extra writes on every rename. If the table is tracked by a history package, it also adds a history row
     for every copy that is rewritten. All of that avoids something that the database already does well.
 
-**Do not use it when the source changes in bulk, often.**
+**Do not use it when the source changes in bulk, often, from everywhere.**
     The cascade triggers are row-level on purpose: their ``WHEN`` condition lets every unrelated UPDATE of the owner's
     table skip them entirely. The price is that a statement that changes a copied column on *N* owner rows runs the
     trigger function *N* times, and each run is an indexed UPDATE of the leaf rows below that row. That is fine for
-    the single-row edits that a user makes. It is the wrong design for a nightly job that renames ten thousand
-    ancestors, or for an importer that reparents rows in bulk. If your owners are routinely updated in that way, keep
-    the join.
+    the single-row edits that a user makes. A batch job that you control, such as a nightly job that renames ten
+    thousand ancestors or an importer that reparents rows in bulk, can run inside one of the batch helpers. They skip
+    the cascades and correct the copies with one set-based pass per leaf at the end; see :doc:`/guides/batch_updates`.
+    Until that pass, the copies below the changed rows are out of date, so the block should contain only the batch's
+    own writes. That pass scans each leaf table, so it pays off for large batches, not for every small one. If your
+    owners are routinely updated in bulk by code that you cannot wrap, keep the join.
 
 **Be wary of hot, wide fan-out.**
     Renaming an ancestor rewrites every leaf row below it, inside the transaction that renames it, and keeps row locks

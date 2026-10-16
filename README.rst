@@ -66,7 +66,8 @@ copies that change.
 
 **Use it for** values that an index or a unique constraint needs, and values that most queries sort or filter by across
 several joins. **Do not use it** to save a join for rendering, because ``select_related`` does that for free. Do not use
-it either for values whose source is often updated in bulk. See `when to use it, and when not to
+it either for values whose source is often updated in bulk by code that you cannot wrap in one of its batch helpers.
+See `when to use it, and when not to
 <https://django-postgres-denormalize.readthedocs.io/en/latest/getting_started/when_to_use.html>`_, and the
 `alternatives <https://django-postgres-denormalize.readthedocs.io/en/latest/getting_started/alternatives.html>`_ page,
 which compares it with django-pgconstraints and django-computedfields.

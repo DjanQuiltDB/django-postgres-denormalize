@@ -97,3 +97,26 @@ every PostgreSQL database to which the router allows the migrations of a model w
 reports ``postgres_denormalize.W303``, ``'error'`` reports ``postgres_denormalize.E303``, and ``'off'`` does not run
 the check. The check reads only the settings. It does not see a transaction that sets a lower level itself.
 
+
+.. _deferrable_cascades:
+
+DEFERRABLE_CASCADES
+-------------------
+
+While it is on, the ``WHEN`` condition of every cascade trigger also reads a transaction-local Postgres setting. This
+lets :func:`~postgres_denormalize.batch.defer_cascades` skip the trigger for a batch update, without Postgres calling
+the trigger function at all. It costs at most one ``current_setting()`` call per updated row of an owner, and a longer
+condition in every cascade trigger. It defaults to ``True``, and a value that is not a boolean raises
+``ImproperlyConfigured``.
+
+Turn it off to keep the triggers compact. ``defer_cascades()`` then raises ``ImproperlyConfigured``.
+:func:`~postgres_denormalize.batch.ignore_cascades` works with either value. See :doc:`/guides/batch_updates`.
+
+.. warning::
+
+    The setting is part of the compiled SQL of every cascade trigger. Changing it in either direction makes
+    ``makemigrations`` write a migration that drops and recreates **every cascade trigger in the project**, in every app
+    that has a denormalized field. The set triggers and the fill triggers are unchanged. Change the setting in a
+    separate deploy, commit the migration that it generates together with it, and use the same value in every
+    environment. When a project's settings differ from the settings that its migrations were generated with,
+    ``makemigrations --check`` fails.

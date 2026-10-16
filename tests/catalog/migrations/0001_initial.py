@@ -177,9 +177,9 @@ class Migration(migrations.Migration):
             trigger=pgtrigger.compiler.Trigger(
                 name='denormalize_cascade_catalog_review',
                 sql=pgtrigger.compiler.UpsertTriggerSql(
-                    condition='WHEN (OLD."email" IS DISTINCT FROM NEW."email")',
+                    condition="WHEN ((OLD.\"email\" IS DISTINCT FROM NEW.\"email\") AND NOT COALESCE('pgtrigger_denormalize_cascade_catalog_review_05878' = ANY(string_to_array(current_setting('postgres_denormalize.deferred_cascades', true), ',')), false))",
                     func='UPDATE "catalog_review" leaf\nSET "reviewer_email" = NEW."email"\nWHERE leaf."reviewer_id" = NEW."id"\n  AND leaf."reviewer_email" IS DISTINCT FROM NEW."email";\nRETURN NULL;',
-                    hash='8c80da6ceb6d92a1eef4fd1154205aa96bdf0d96',
+                    hash='c8637b138ad6e6985247638fe60f83d79b12af0b',
                     operation='UPDATE',
                     pgid='pgtrigger_denormalize_cascade_catalog_review_05878',
                     table='auth_user',
@@ -206,9 +206,9 @@ class Migration(migrations.Migration):
             trigger=pgtrigger.compiler.Trigger(
                 name='denormalize_cascade_catalog_item',
                 sql=pgtrigger.compiler.UpsertTriggerSql(
-                    condition='WHEN (OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id" OR OLD."title" IS DISTINCT FROM NEW."title")',
+                    condition='WHEN ((OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id" OR OLD."title" IS DISTINCT FROM NEW."title") AND NOT COALESCE(\'pgtrigger_denormalize_cascade_catalog_item_b2546\' = ANY(string_to_array(current_setting(\'postgres_denormalize.deferred_cascades\', true), \',\')), false))',
                     func='UPDATE "catalog_item" leaf\nSET "tenant_id" = NEW."tenant_id",\n    "section_title" = NEW."title"\nFROM "catalog_category" hop0\nWHERE leaf."category_id" = hop0."id"\n  AND hop0."section_id" = NEW."id"\n  AND (leaf."tenant_id" IS DISTINCT FROM NEW."tenant_id"\n    OR leaf."section_title" IS DISTINCT FROM NEW."title");\nRETURN NULL;',
-                    hash='7d5bf45b4a78e94eae3a33f0d17bb9cd6db314f4',
+                    hash='c9f47d7cd1c17070679f277a679352954a1ca193',
                     operation='UPDATE',
                     pgid='pgtrigger_denormalize_cascade_catalog_item_b2546',
                     table='catalog_section',
@@ -250,9 +250,9 @@ class Migration(migrations.Migration):
             trigger=pgtrigger.compiler.Trigger(
                 name='denormalize_cascade_catalog_item',
                 sql=pgtrigger.compiler.UpsertTriggerSql(
-                    condition='WHEN (OLD."section_id" IS DISTINCT FROM NEW."section_id" OR OLD."parent_id" IS DISTINCT FROM NEW."parent_id")',
+                    condition='WHEN ((OLD."section_id" IS DISTINCT FROM NEW."section_id" OR OLD."parent_id" IS DISTINCT FROM NEW."parent_id") AND NOT COALESCE(\'pgtrigger_denormalize_cascade_catalog_item_438c5\' = ANY(string_to_array(current_setting(\'postgres_denormalize.deferred_cascades\', true), \',\')), false))',
                     func='UPDATE "catalog_item" leaf\nSET "tenant_id" = (SELECT upper0."tenant_id"\n FROM "catalog_section" upper0\n WHERE upper0."id" = NEW."section_id"),\n    "section_id" = NEW."section_id",\n    "parent_category_id" = NEW."parent_id",\n    "section_title" = (SELECT upper0."title"\n FROM "catalog_section" upper0\n WHERE upper0."id" = NEW."section_id")\nWHERE leaf."category_id" = NEW."id"\n  AND (leaf."tenant_id" IS DISTINCT FROM (SELECT upper0."tenant_id"\n FROM "catalog_section" upper0\n WHERE upper0."id" = NEW."section_id")\n    OR leaf."section_id" IS DISTINCT FROM NEW."section_id"\n    OR leaf."parent_category_id" IS DISTINCT FROM NEW."parent_id"\n    OR leaf."section_title" IS DISTINCT FROM (SELECT upper0."title"\n FROM "catalog_section" upper0\n WHERE upper0."id" = NEW."section_id"));\nRETURN NULL;',
-                    hash='1ed509049af4efef375456528ac91aa7e946300d',
+                    hash='391c81a28f08916299a5ed1d4c0ab7ce96130d6a',
                     operation='UPDATE',
                     pgid='pgtrigger_denormalize_cascade_catalog_item_438c5',
                     table='catalog_category',

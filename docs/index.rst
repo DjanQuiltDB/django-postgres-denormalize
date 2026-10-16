@@ -24,6 +24,7 @@ Release |version|.
     guides/triggers
     guides/migrations
     guides/indexing
+    guides/batch_updates
     guides/drift
     guides/exclusions
 

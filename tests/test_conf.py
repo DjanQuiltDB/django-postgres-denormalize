@@ -18,6 +18,7 @@ class GetSettingTestCase(SimpleTestCase):
         self.assertEqual(conf.get_setting('ORDERING_CHECK_LEVEL'), 'warning')
         self.assertEqual(conf.get_setting('ISOLATION_CHECK_LEVEL'), 'warning')
         self.assertEqual(conf.get_setting('REDUNDANT_COPY_CHECK'), conf.DEFAULT_REDUNDANT_COPY_CHECK)
+        self.assertIs(conf.get_setting('DEFERRABLE_CASCADES'), True)
 
     @override_settings(POSTGRES_DENORMALIZE={'REDUNDANT_COPY_CHECK': {'LEVEL': 'off'}})
     def test_the_redundant_copy_check_is_merged_key_by_key(self):
@@ -202,3 +203,19 @@ class ValidateSettingsTestCase(SimpleTestCase):
         Expected: An ImproperlyConfigured error that asks for an integer of 2 or more.
         """
         self.assertRefused({'REDUNDANT_COPY_CHECK': {'MAX_DEPTH': 1}}, 'integer of 2 or more')
+
+    def test_refuses_deferrable_cascades_that_is_not_a_bool(self):
+        """
+        Case: DEFERRABLE_CASCADES is the string 'off', and then the integer 0.
+        Expected: An ImproperlyConfigured error that asks for True or False, for each of them.
+        """
+        self.assertRefused({'DEFERRABLE_CASCADES': 'off'}, '["DEFERRABLE_CASCADES"] must be True or False')
+        self.assertRefused({'DEFERRABLE_CASCADES': 0}, '["DEFERRABLE_CASCADES"] must be True or False')
+
+    @override_settings(POSTGRES_DENORMALIZE={'DEFERRABLE_CASCADES': False})
+    def test_accepts_deferrable_cascades_turned_off(self):
+        """
+        Case: DEFERRABLE_CASCADES is False.
+        Expected: No error.
+        """
+        conf.validate_settings()

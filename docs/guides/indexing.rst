@@ -44,7 +44,9 @@ Unique constraints
     models.UniqueConstraint(fields=['tenant', 'title'], name='unique_task_title_per_tenant')
 
 The constraint is enforced for every write path, including cascades. Moving a project into a tenant that already has a
-task with the same title fails with an ``IntegrityError``, just like inserting such a task does.
+task with the same title fails with an ``IntegrityError``, just like inserting such a task does. Inside a batch helper
+(see :doc:`/guides/batch_updates`), the error comes from the correction when the block ends, and the whole batch rolls
+back.
 
 
 Search: trigram and full text

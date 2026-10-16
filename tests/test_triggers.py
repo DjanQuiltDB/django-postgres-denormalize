@@ -1,10 +1,19 @@
+from unittest import mock
+
 import pgtrigger
 from catalog.models import Category, Item, ItemAudit, Review, Reviewer, Section
+from django.apps import apps
+from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.management.commands import makemigrations
 from django.db import IntegrityError, connection, transaction
-from django.test import SimpleTestCase, TestCase
+from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.state import ProjectState
+from django.test import SimpleTestCase, TestCase, override_settings
+from pgtrigger.migrations import AddTrigger, RemoveTrigger
 from tenancy.models import Comment, Project, Task, Tenant
 
+from postgres_denormalize.chains import resolve_chain
 from postgres_denormalize.triggers import (
     MAX_TRIGGER_NAME_LENGTH,
     DenormalizeCascadeTrigger,
@@ -12,6 +21,7 @@ from postgres_denormalize.triggers import (
     DenormalizeSetTrigger,
     build_cascade_update_sql,
     cascade_trigger_name,
+    cascade_triggers_on,
     register_triggers,
 )
 
@@ -138,19 +148,38 @@ class CascadeTriggerSqlTestCase(SimpleTestCase):
             '  AND leaf."tenant_id" IS DISTINCT FROM NEW."tenant_id";',
         )
 
-    def test_the_condition_tests_every_copied_column_of_the_table(self):
+    def test_the_condition_tests_every_copied_column_of_the_table_and_the_deferred_setting(self):
         """
-        Case: The condition of the cascade trigger for Task is compiled for Project.
-        Expected: The condition tests the three columns of Project that Task copies. The function ends with RETURN NULL.
+        Case: The condition of the cascade trigger for Task is compiled for Project, with DEFERRABLE_CASCADES on.
+        Expected: The condition tests the three columns of Project that Task copies, and that the current transaction
+                  does not list the trigger in the deferred setting. The function ends with RETURN NULL.
         """
         trigger = DenormalizeCascadeTrigger(leaf_label='tenancy.Task')
 
         self.assertEqual(
             trigger.get_condition(Project).resolve(Project),
+            '((OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id" OR OLD."name" IS DISTINCT FROM NEW."name" '
+            'OR OLD."code" IS DISTINCT FROM NEW."code") '
+            "AND NOT COALESCE('pgtrigger_denormalize_cascade_tenancy_task_de430' = "
+            "ANY(string_to_array(current_setting('postgres_denormalize.deferred_cascades', true), ',')), false))",
+        )
+        self.assertTrue(trigger.get_func(Project).endswith('RETURN NULL;'))
+
+    def test_without_deferrable_cascades_the_condition_names_only_the_columns(self):
+        """
+        Case: The condition of the cascade trigger for Task is compiled for Project, with DEFERRABLE_CASCADES off.
+        Expected: The condition only tests the three columns of Project that Task copies.
+        """
+        trigger = DenormalizeCascadeTrigger(leaf_label='tenancy.Task')
+
+        with override_settings(POSTGRES_DENORMALIZE={**settings.POSTGRES_DENORMALIZE, 'DEFERRABLE_CASCADES': False}):
+            condition = trigger.get_condition(Project).resolve(Project)
+
+        self.assertEqual(
+            condition,
             'OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id" OR OLD."name" IS DISTINCT FROM NEW."name" '
             'OR OLD."code" IS DISTINCT FROM NEW."code"',
         )
-        self.assertTrue(trigger.get_func(Project).endswith('RETURN NULL;'))
 
 
 class FillTriggerSqlTestCase(SimpleTestCase):
@@ -169,6 +198,105 @@ class FillTriggerSqlTestCase(SimpleTestCase):
             trigger.get_func(Project),
             build_cascade_update_sql(Comment, [(tenant, tenant.resolve_chain(), 2)]) + '\nRETURN NULL;',
         )
+
+
+class DeferrableCascadesMigrationTestCase(SimpleTestCase):
+    """
+    Turning ``DEFERRABLE_CASCADES`` on or off changes the condition of every cascade trigger. ``makemigrations`` then
+    recreates each cascade trigger, and changes nothing else.
+    """
+
+    CASCADE_TRIGGERS = {
+        ('catalog', 'category', 'denormalize_cascade_catalog_item'),
+        ('catalog', 'reviewer', 'denormalize_cascade_catalog_review'),
+        ('catalog', 'section', 'denormalize_cascade_catalog_item'),
+        ('tenancy', 'project', 'denormalize_cascade_tenancy_comment'),
+        ('tenancy', 'project', 'denormalize_cascade_tenancy_task'),
+        ('tenancy', 'task', 'denormalize_cascade_tenancy_comment'),
+    }
+
+    def override_deferrable_cascades(self, value):
+        return override_settings(POSTGRES_DENORMALIZE={**settings.POSTGRES_DENORMALIZE, 'DEFERRABLE_CASCADES': value})
+
+    def build_migrated_state(self, deferrable):
+        """
+        Return the state that migrations generated with ``DEFERRABLE_CASCADES`` set to ``deferrable`` produce. Its
+        triggers are compiled, as in the migration files.
+        """
+        state = ProjectState.from_apps(apps)
+        with self.override_deferrable_cascades(deferrable):
+            for (app_label, model_name), model_state in state.models.items():
+                model = apps.get_model(app_label, model_name)
+                model_state.options['triggers'] = [
+                    trigger.compile(model) for trigger in model_state.options.get('triggers', [])
+                ]
+        return state
+
+    def detect_operations(self, from_state, deferrable):
+        """
+        Return the operations that ``makemigrations`` writes on top of ``from_state`` with ``DEFERRABLE_CASCADES`` set
+        to ``deferrable``. This uses the autodetector of the command, which pgtrigger extends to compare triggers. The
+        autodetector compiles the models' triggers while it compares them, so the setting applies there.
+        """
+        with self.override_deferrable_cascades(deferrable):
+            changes = makemigrations.Command.autodetector(from_state, ProjectState.from_apps(apps))._detect_changes()
+        return [
+            (app_label, operation)
+            for app_label, migrations in changes.items()
+            for migration in migrations
+            for operation in migration.operations
+        ]
+
+    def assertRecreatesEveryCascadeTrigger(self, from_state, deferrable):
+        operations = self.detect_operations(from_state, deferrable)
+        removed = {
+            (app_label, operation.model_name, operation.name)
+            for app_label, operation in operations
+            if isinstance(operation, RemoveTrigger)
+        }
+        added = {
+            (app_label, operation.model_name, operation.trigger.name)
+            for app_label, operation in operations
+            if isinstance(operation, AddTrigger)
+        }
+
+        self.assertEqual(removed, self.CASCADE_TRIGGERS)
+        self.assertEqual(added, self.CASCADE_TRIGGERS)
+        self.assertEqual(len(operations), 2 * len(self.CASCADE_TRIGGERS))
+
+    def test_turning_it_off_recreates_every_cascade_trigger_and_nothing_else(self):
+        """
+        Case: The migrations were generated with DEFERRABLE_CASCADES on, and makemigrations runs with it off.
+        Expected: A RemoveTrigger and an AddTrigger for every cascade trigger, and no other operations.
+        """
+        self.assertRecreatesEveryCascadeTrigger(self.build_migrated_state(True), False)
+
+    def test_turning_it_on_recreates_every_cascade_trigger_and_nothing_else(self):
+        """
+        Case: The migrations were generated with DEFERRABLE_CASCADES off, and makemigrations runs with it on.
+        Expected: A RemoveTrigger and an AddTrigger for every cascade trigger, and no other operations.
+        """
+        self.assertRecreatesEveryCascadeTrigger(self.build_migrated_state(False), True)
+
+    def test_an_unchanged_setting_writes_no_migration(self):
+        """
+        Case: makemigrations runs with the same DEFERRABLE_CASCADES value that the migrations were generated with, once
+              with True and once with False.
+        Expected: No operations.
+        """
+        self.assertEqual(self.detect_operations(self.build_migrated_state(True), True), [])
+        self.assertEqual(self.detect_operations(self.build_migrated_state(False), False), [])
+
+    def test_the_test_project_migrations_have_the_default_condition(self):
+        """
+        Case: makemigrations runs on the state of the test project's migration files, with DEFERRABLE_CASCADES on and
+              then off.
+        Expected: With it on, no operations. With it off, every cascade trigger is recreated.
+        """
+        project_state = MigrationLoader(None, ignore_no_migrations=True).project_state()
+
+        self.assertEqual(self.detect_operations(project_state, True), [])
+        self.assertRecreatesEveryCascadeTrigger(project_state, False)
 
 
 class TriggerNameTestCase(SimpleTestCase):
@@ -262,6 +390,58 @@ class RegistrationTestCase(SimpleTestCase):
         self.assertEqual(trigger_names(Reviewer, DenormalizeFillTrigger), ['denormalize_fill_catalog_review'])
         self.assertEqual(trigger_names(User, DenormalizeCascadeTrigger), [])
         self.assertEqual(trigger_names(User, DenormalizeFillTrigger), [])
+
+    def test_the_cascade_trigger_on_a_proxy_is_found_through_the_concrete_model(self):
+        """
+        Case: cascade_triggers_on is called with auth.User, then with Reviewer, and then with both.
+        Expected: Each call finds the cascade trigger for Review once, with Reviewer as its owner.
+        """
+        for owners in ([User], [Reviewer], [User, Reviewer]):
+            with self.subTest(owners=owners):
+                found = cascade_triggers_on(owners)
+
+                self.assertEqual(
+                    [(owner, leaf, trigger.name) for owner, leaf, trigger in found],
+                    [(Reviewer, Review, 'denormalize_cascade_catalog_review')],
+                )
+
+    def test_the_cascade_triggers_on_owners_are_found_in_label_order(self):
+        """
+        Case: cascade_triggers_on is called with Task, Project and Project again.
+        Expected: The three cascade triggers on Project and Task, each once, in label order. Each one is equal to the
+                  trigger that is registered on its owner.
+        """
+        found = cascade_triggers_on([Task, Project, Project])
+
+        self.assertEqual(
+            [(owner, leaf, trigger.name) for owner, leaf, trigger in found],
+            [
+                (Project, Comment, 'denormalize_cascade_tenancy_comment'),
+                (Project, Task, 'denormalize_cascade_tenancy_task'),
+                (Task, Comment, 'denormalize_cascade_tenancy_comment'),
+            ],
+        )
+        self.assertIn(found[1][2], Project._meta.triggers)
+
+    def test_the_cascade_triggers_are_found_without_resolving_a_lookup_path(self):
+        """
+        Case: cascade_triggers_on is called with Project, Task, Category and Section, while resolve_chain is watched.
+        Expected: resolve_chain is never called, because the triggers are read from pgtrigger's registry, where
+                  register_triggers already put them.
+        """
+        with mock.patch('postgres_denormalize.fields.resolve_chain', wraps=resolve_chain) as resolve:
+            found = cascade_triggers_on([Project, Task, Category, Section])
+
+        self.assertEqual(len(found), 5)
+        resolve.assert_not_called()
+
+    def test_a_model_without_cascade_triggers_is_refused(self):
+        """
+        Case: cascade_triggers_on is called with Project and Tenant, and Tenant has no cascade trigger.
+        Expected: A ValueError that names tenancy.Tenant.
+        """
+        with self.assertRaisesMessage(ValueError, 'tenancy.Tenant has no cascade trigger'):
+            cascade_triggers_on([Project, Tenant])
 
     def test_an_excluded_model_gets_no_trigger(self):
         """

@@ -29,6 +29,7 @@ import pgtrigger.utils
 from django.apps import apps
 from django.core.exceptions import FieldDoesNotExist
 
+from postgres_denormalize import conf
 from postgres_denormalize.fields import get_denormalized_fields
 
 SET_TRIGGER_NAME = 'denormalize_set'
@@ -36,6 +37,11 @@ SET_TRIGGER_NAME = 'denormalize_set'
 CASCADE_TRIGGER_PREFIX = 'denormalize_cascade_'
 
 FILL_TRIGGER_PREFIX = 'denormalize_fill_'
+
+# The transaction-local Postgres setting in which ``defer_cascades()`` lists the cascade triggers that it skips, as a
+# comma-separated list of their Postgres identifiers. While ``DEFERRABLE_CASCADES`` is on, the WHEN condition of every
+# cascade trigger reads this setting.
+DEFERRED_CASCADES_SETTING = 'postgres_denormalize.deferred_cascades'
 
 # pgtrigger refuses longer trigger names: it adds the prefix `pgtrigger_` and a hash suffix to form a 63-character
 # Postgres identifier.
@@ -326,6 +332,19 @@ def build_changed_columns_sql(columns):
     return ' OR '.join(f'OLD.{quote(column)} IS DISTINCT FROM NEW.{quote(column)}' for column in columns)
 
 
+def build_not_deferred_sql(pgid):
+    """
+    Build the condition that is true unless the current transaction lists the trigger ``pgid`` in
+    ``DEFERRED_CASCADES_SETTING``.
+
+    ``current_setting`` returns NULL for a setting that this session never set, and an empty string after a transaction
+    that set it has ended. ``string_to_array`` turns NULL into NULL, which would make the whole condition NULL, and the
+    trigger would never fire. ``COALESCE`` therefore treats NULL as not deferred.
+    """
+    listed = f"'{pgid}' = ANY(string_to_array(current_setting('{DEFERRED_CASCADES_SETTING}', true), ','))"
+    return f'NOT COALESCE({listed}, false)'
+
+
 def cascade_trigger_name(leaf_label, prefix=CASCADE_TRIGGER_PREFIX):
     """
     Name the cascade trigger for the leaf ``leaf_label``: ``denormalize_cascade_<app_label>_<model_name>``. The fill
@@ -409,7 +428,14 @@ class DenormalizeCascadeTrigger(OwnerTrigger):
     reads, so Postgres calls its function only for a row in which one of those columns changed. Every other UPDATE on
     the table costs nothing beyond evaluating the condition. The price is that an UPDATE that changes many rows at once
     runs the function once per row, and each run is an indexed UPDATE on the leaf. Frequent bulk updates of such columns
-    are therefore a reason not to denormalize them.
+    are therefore a reason not to denormalize them, unless the batch runs inside ``ignore_cascades()`` or
+    ``defer_cascades()``.
+
+    While ``DEFERRABLE_CASCADES`` is on, which is the default, the condition also requires that the current transaction
+    does not list the trigger in ``DEFERRED_CASCADES_SETTING``. ``defer_cascades()`` lists it there, so Postgres does
+    not call the function at all for the rows that a batch changes. When the setting is off, the condition only tests
+    the columns. Changing the setting changes the compiled condition of every cascade trigger, so ``makemigrations``
+    recreates all of them.
     """
 
     when = pgtrigger.After
@@ -420,7 +446,12 @@ class DenormalizeCascadeTrigger(OwnerTrigger):
         columns = []
         for group in groups:
             columns.extend(column for column in self._owned_columns(group) if column not in columns)
-        return pgtrigger.Condition(build_changed_columns_sql(columns))
+        changed = build_changed_columns_sql(columns)
+        if not conf.get_setting('DEFERRABLE_CASCADES'):
+            return pgtrigger.Condition(changed)
+        # pgtrigger adds parentheses around a condition only when it does not already start with a parenthesis, so the
+        # whole condition is wrapped here, and not just the test on the columns.
+        return pgtrigger.Condition(f'(({changed}) AND {build_not_deferred_sql(self.get_pgid(model))})')
 
     def get_func(self, model):
         leaf, groups = self._leaf_and_assignment_groups(model)
@@ -449,7 +480,8 @@ class DenormalizeFillTrigger(OwnerTrigger):
     inserted. Its function runs the same statements as the cascade trigger, one for each group of copies. A new row has
     no leaf rows below it in the usual order of inserts, so each statement is one indexed lookup that writes nothing.
 
-    The trigger has no ``WHEN`` condition, because every column of a new row is new.
+    The trigger has no ``WHEN`` condition, because every column of a new row is new, and the batch helpers do not skip
+    it.
     """
 
     name_prefix = FILL_TRIGGER_PREFIX
@@ -517,12 +549,47 @@ def register_triggers_for(leaf):
         DenormalizeFillTrigger(leaf_label=leaf._meta.label).register(owner)
 
 
+def cascade_triggers_on(owners):
+    """
+    Return ``(owner, leaf, trigger)`` for every cascade trigger on the tables of the models in ``owners``, in label
+    order.
+
+    ``owner`` is the model that the trigger is registered on. That is a proxy model when a hop points at the proxy, and
+    the caller can name either the proxy or the concrete model.
+
+    The triggers are read from pgtrigger's registry, where ``register_triggers`` put them, so no lookup path is resolved
+    again. A model that has no cascade trigger raises ``ValueError``. No lookup path reads one of its columns after a
+    first hop, so naming it is a mistake. Usually a leaf was named instead of its owner.
+    """
+    registered = [
+        (model, trigger) for model, trigger in pgtrigger.registered() if isinstance(trigger, DenormalizeCascadeTrigger)
+    ]
+    found = []
+    for owner in sorted(set(owners), key=lambda model: model._meta.label):
+        table_label = owner._meta.concrete_model._meta.label
+        on_owner = [
+            (model, apps.get_model(trigger.leaf_label), trigger)
+            for model, trigger in sorted(registered, key=lambda pair: pair[1].leaf_label)
+            if model._meta.concrete_model._meta.label == table_label
+        ]
+        if not on_owner:
+            raise ValueError(
+                f'{owner._meta.label} has no cascade trigger: no lookup path reads one of its columns after a first '
+                f'hop. Name the models whose rows the batch updates, not the leaves that copy from them.'
+            )
+        found.extend(on_owner)
+    # A caller that names both a proxy model and its concrete model finds the same triggers twice.
+    return list(dict.fromkeys(found))
+
+
 __all__ = [
+    'DEFERRED_CASCADES_SETTING',
     'DenormalizeCascadeTrigger',
     'DenormalizeFillTrigger',
     'DenormalizeSetTrigger',
     'OwnerTrigger',
     'cascade_trigger_name',
+    'cascade_triggers_on',
     'owners_of',
     'register_triggers',
     'register_triggers_for',

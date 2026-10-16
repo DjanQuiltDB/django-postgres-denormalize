@@ -117,9 +117,9 @@ class Migration(migrations.Migration):
             trigger=pgtrigger.compiler.Trigger(
                 name='denormalize_cascade_tenancy_comment',
                 sql=pgtrigger.compiler.UpsertTriggerSql(
-                    condition='WHEN (OLD."project_id" IS DISTINCT FROM NEW."project_id")',
+                    condition="WHEN ((OLD.\"project_id\" IS DISTINCT FROM NEW.\"project_id\") AND NOT COALESCE('pgtrigger_denormalize_cascade_tenancy_comment_2f7a8' = ANY(string_to_array(current_setting('postgres_denormalize.deferred_cascades', true), ',')), false))",
                     func='UPDATE "tenancy_comment" leaf\nSET "tenant_id" = (SELECT upper0."tenant_id"\n FROM "tenancy_project" upper0\n WHERE upper0."id" = NEW."project_id")\nWHERE leaf."task_id" = NEW."id"\n  AND leaf."tenant_id" IS DISTINCT FROM (SELECT upper0."tenant_id"\n FROM "tenancy_project" upper0\n WHERE upper0."id" = NEW."project_id");\nRETURN NULL;',
-                    hash='91c54186613c5aedaa7a704c512a4afd5557bdf8',
+                    hash='72a0d0f8e2b0b3722ff0856bc7abec86d232ea97',
                     operation='UPDATE',
                     pgid='pgtrigger_denormalize_cascade_tenancy_comment_2f7a8',
                     table='tenancy_task',
@@ -161,9 +161,9 @@ class Migration(migrations.Migration):
             trigger=pgtrigger.compiler.Trigger(
                 name='denormalize_cascade_tenancy_comment',
                 sql=pgtrigger.compiler.UpsertTriggerSql(
-                    condition='WHEN (OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id")',
+                    condition="WHEN ((OLD.\"tenant_id\" IS DISTINCT FROM NEW.\"tenant_id\") AND NOT COALESCE('pgtrigger_denormalize_cascade_tenancy_comment_215eb' = ANY(string_to_array(current_setting('postgres_denormalize.deferred_cascades', true), ',')), false))",
                     func='UPDATE "tenancy_comment" leaf\nSET "tenant_id" = NEW."tenant_id"\nFROM "tenancy_task" hop0\nWHERE leaf."task_id" = hop0."id"\n  AND hop0."project_id" = NEW."id"\n  AND leaf."tenant_id" IS DISTINCT FROM NEW."tenant_id";\nRETURN NULL;',
-                    hash='8ee3b0b222559fc9a6ed77f55e72bfb51755fc65',
+                    hash='bfe915b3d9b11012b3ed1c6ae1f88eca541da3d0',
                     operation='UPDATE',
                     pgid='pgtrigger_denormalize_cascade_tenancy_comment_215eb',
                     table='tenancy_project',
@@ -190,9 +190,9 @@ class Migration(migrations.Migration):
             trigger=pgtrigger.compiler.Trigger(
                 name='denormalize_cascade_tenancy_task',
                 sql=pgtrigger.compiler.UpsertTriggerSql(
-                    condition='WHEN (OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id" OR OLD."name" IS DISTINCT FROM NEW."name" OR OLD."code" IS DISTINCT FROM NEW."code")',
+                    condition='WHEN ((OLD."tenant_id" IS DISTINCT FROM NEW."tenant_id" OR OLD."name" IS DISTINCT FROM NEW."name" OR OLD."code" IS DISTINCT FROM NEW."code") AND NOT COALESCE(\'pgtrigger_denormalize_cascade_tenancy_task_de430\' = ANY(string_to_array(current_setting(\'postgres_denormalize.deferred_cascades\', true), \',\')), false))',
                     func='UPDATE "tenancy_task" leaf\nSET "tenant_id" = NEW."tenant_id",\n    "project_name" = NEW."name",\n    "project_code" = NEW."code"\nWHERE leaf."project_id" = NEW."id"\n  AND (leaf."tenant_id" IS DISTINCT FROM NEW."tenant_id"\n    OR leaf."project_name" IS DISTINCT FROM NEW."name"\n    OR leaf."project_code" IS DISTINCT FROM NEW."code");\nRETURN NULL;',
-                    hash='c2180c2f6da5dc0d227421ef76eb58017f381bd2',
+                    hash='90cc0a2b6e96fcb8ce73b0ac935afcb30a106c3a',
                     operation='UPDATE',
                     pgid='pgtrigger_denormalize_cascade_tenancy_task_de430',
                     table='tenancy_project',

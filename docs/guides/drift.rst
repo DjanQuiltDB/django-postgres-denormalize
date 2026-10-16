@@ -71,8 +71,9 @@ Before you run it on a large table, note the following:
 
 * **Database.** ``using`` names the database to correct. Without it, the call writes to the database that the router
   chooses for the model. A project with several databases calls it once for each database.
-* **Cost.** Each call reads every row of the leaf to find the rows that differ. Each row that it rewrites runs the
-  leaf's set trigger and, if a history package tracks the leaf, gets a history row.
+* **Cost.** Each call reads every row of the leaf to find the rows that differ (see :ref:`the cost of a batch update
+  <batch_update_cost>`). Each row that it rewrites runs the leaf's set trigger and, if a history package tracks the
+  leaf, gets a history row.
 * **Unique constraints.** When a copy is part of a unique constraint, the correction can make two rows collide, and the
   PostgreSQL error names only the first collision (see :ref:`collisions <migration_collisions>`).
 * **Excluded models.** The call skips a model that ``EXCLUDE_MODELS`` lists, such as an audit table, because its rows

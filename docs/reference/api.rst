@@ -37,6 +37,18 @@ The backfill that fills a new copy and corrects copies that differ from their pa
 .. autofunction:: backfill_denormalized
 
 
+Batch updates
+=============
+
+The context managers that skip the cascade triggers for a block. See :doc:`/guides/batch_updates`.
+
+.. currentmodule:: postgres_denormalize.batch
+
+.. autofunction:: ignore_cascades
+
+.. autofunction:: defer_cascades
+
+
 Triggers
 ========
 

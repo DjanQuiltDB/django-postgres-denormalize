@@ -19,6 +19,10 @@ Every key is optional::
         'ORDERING_CHECK_LEVEL': 'warning',  # or 'error', or 'off'
         # The level of the check that each database that stores copies runs transactions at SERIALIZABLE.
         'ISOLATION_CHECK_LEVEL': 'warning',  # or 'error', or 'off'
+        # Whether the WHEN condition of every cascade trigger lets ``defer_cascades()`` skip the trigger. Turning it off
+        # keeps the triggers compact. Changing it in either direction changes every cascade trigger, so makemigrations
+        # writes a migration that recreates all of them.
+        'DEFERRABLE_CASCADES': True,
     }
 
 The values are read each time they are needed, not once at start-up, so ``override_settings`` in a test takes effect.
@@ -45,6 +49,7 @@ DEFAULTS = {
     'REDUNDANT_COPY_CHECK': DEFAULT_REDUNDANT_COPY_CHECK,
     'ORDERING_CHECK_LEVEL': 'warning',
     'ISOLATION_CHECK_LEVEL': 'warning',
+    'DEFERRABLE_CASCADES': True,
 }
 
 
@@ -152,6 +157,9 @@ def validate_settings():
 
     _validate_level('ORDERING_CHECK_LEVEL', get_setting('ORDERING_CHECK_LEVEL'))
     _validate_level('ISOLATION_CHECK_LEVEL', get_setting('ISOLATION_CHECK_LEVEL'))
+
+    if not isinstance(get_setting('DEFERRABLE_CASCADES'), bool):
+        raise ImproperlyConfigured(f'{SETTING_NAME}["DEFERRABLE_CASCADES"] must be True or False.')
 
 
 def _validate_level(key, value):

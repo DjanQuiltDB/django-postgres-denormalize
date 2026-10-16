@@ -231,9 +231,10 @@ class CopiesReachingOneModelByDifferentPathsTestCase(SimpleTestCase):
         trigger = DenormalizeCascadeTrigger(leaf_label='isolated.Leaf')
         func = trigger.get_func(Owner)
 
-        self.assertEqual(
-            trigger.get_condition(Owner).resolve(Owner),
-            'OLD."name" IS DISTINCT FROM NEW."name" OR OLD."code" IS DISTINCT FROM NEW."code"',
+        self.assertTrue(
+            trigger.get_condition(Owner)
+            .resolve(Owner)
+            .startswith('((OLD."name" IS DISTINCT FROM NEW."name" OR OLD."code" IS DISTINCT FROM NEW."code") AND NOT ')
         )
         self.assertEqual(func.count('UPDATE '), 2)
         self.assertIn('IF OLD."name" IS DISTINCT FROM NEW."name" THEN\n    UPDATE "isolated_leaf" leaf\n', func)

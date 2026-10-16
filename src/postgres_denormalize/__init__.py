@@ -27,6 +27,8 @@ The package has these modules:
   the fields while ``PostgresDenormalizeConfig.ready()`` runs.
 - ``operations`` has ``BackfillDenormalized``, the migration operation that corrects stored values before a migration
   installs or changes the triggers.
+- ``batch`` has ``ignore_cascades`` and ``defer_cascades``, which skip the cascade triggers during a batch update and
+  correct the copies in one set-based pass when the batch ends. Inside the block, those copies are out of date.
 - ``checks`` has the system checks. ``conf`` has the ``POSTGRES_DENORMALIZE`` setting, including ``EXCLUDE_MODELS``
   and ``EXCLUDE_MODELS_CALLBACK``, which name the models that this package skips.
 """
