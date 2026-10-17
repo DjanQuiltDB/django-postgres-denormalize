@@ -38,5 +38,6 @@ RUN python3.14 -m pip install --upgrade pip setuptools wheel && \
 
 COPY tests ./tests
 COPY docs ./docs
+COPY assets ./assets
 
 CMD ["tox"]

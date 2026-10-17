@@ -1,3 +1,7 @@
+.. image:: https://raw.githubusercontent.com/DjanQuiltDB/django-postgres-denormalize/master/assets/icon-128.png
+    :alt: django-postgres-denormalize
+    :width: 128
+
 ===========================
 django-postgres-denormalize
 ===========================
