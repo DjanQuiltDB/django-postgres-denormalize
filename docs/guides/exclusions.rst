@@ -12,9 +12,14 @@ This package skips an excluded model entirely:
 * it gets no triggers, so nothing ever rewrites its copies;
 * :func:`~postgres_denormalize.fields.get_denormalized_fields` returns nothing for it, so the drift filter and the
   backfill skip it (unless ``also_fill`` names it explicitly, see :doc:`/guides/migrations`);
-* the project-wide system checks do not look at it.
+* the project-wide system checks do not look at it;
+* its fields skip the field checks that compare the declaration with the lookup path, such as ``W009`` for an
+  ``on_delete`` rule that differs from the path. ``EXCLUDE_MODELS_SILENCED_CHECKS`` chooses which ones (see
+  :doc:`/reference/settings`).
 
-Its denormalized columns still get their type, so the table is created and migrated like any other.
+Its denormalized columns still get their type, so the table is created and migrated like any other. The type, and the
+target of a foreign key copy, come from the lookup path, so the path must resolve on the excluded model too. The field
+checks that report a path that does not resolve therefore still run by default.
 
 Without either key, no model is excluded. An ``EXCLUDE_MODELS`` entry that names no installed model is reported
 (``E401``, see :doc:`/reference/checks`).

@@ -216,8 +216,26 @@ class DenormalizedMixin:
     def check(self, **kwargs):
         return [*super().check(**kwargs), *self._check_denormalize_from()]
 
+    def _silenced_checks(self):
+        """
+        Return the ids of the checks that this field skips.
+
+        A field on an excluded model skips the checks that ``EXCLUDE_MODELS_SILENCED_CHECKS`` lists. No trigger writes
+        its column, so by default it skips the checks that compare the declaration with the lookup path. Its target,
+        column type and ``on_delete`` rule still come from the path, so the checks that find a path that cannot give
+        them still run.
+        """
+        if conf.is_excluded(self.model):
+            return frozenset(conf.get_setting('EXCLUDE_MODELS_SILENCED_CHECKS'))
+        return frozenset()
+
     def _check_denormalize_from(self):
+        # Each check reports the first problem that it finds. A silenced check is skipped, rather than its message
+        # dropped, so that the checks after it still run.
+        silenced = self._silenced_checks()
         if '__' not in self.denormalize_from:
+            if 'postgres_denormalize.E001' in silenced:
+                return []
             return self._error(
                 'postgres_denormalize.E001',
                 f'`denormalize_from` is `{self.denormalize_from}`, which is a column on the same row, not a column '
@@ -227,25 +245,30 @@ class DenormalizedMixin:
         try:
             chain = self.resolve_chain()
         except PathRefused as refusal:
+            if refusal.code in silenced:
+                return []
             return self._error(refusal.code, f'{refusal}.', refusal.hint)
         except (FieldDoesNotExist, ValueError) as exception:
+            if 'postgres_denormalize.E001' in silenced:
+                return []
             return self._error(
                 'postgres_denormalize.E001',
                 f'`denormalize_from` is `{self.denormalize_from}`, which does not resolve: {exception}.',
             )
 
-        if chain[0].null:
+        if chain[0].null and 'postgres_denormalize.E002' not in silenced:
             return self._error(
                 'postgres_denormalize.E002',
                 f'`denormalize_from` is `{self.denormalize_from}`, which starts at the nullable foreign key '
                 f'`{chain[0].name}`, so the trigger computes NULL for every row where `{chain[0].name}` is empty.',
             )
 
-        return self._check_end_of_chain(chain)
+        return self._check_end_of_chain(chain, silenced)
 
-    def _check_end_of_chain(self, chain):
+    def _check_end_of_chain(self, chain, silenced):
         """
-        Check the field at the end of the lookup path. Each concrete class allows different fields there.
+        Check the field at the end of the lookup path, skipping the checks in ``silenced``. Each concrete class allows
+        different fields there.
         """
         raise NotImplementedError
 
@@ -428,45 +451,50 @@ class DenormalizedForeignKey(DenormalizedMixin, models.ForeignKey):
             return self._check_denormalize_from()
         return super().check(**kwargs)
 
-    def _check_end_of_chain(self, chain):
+    def _check_end_of_chain(self, chain, silenced):
         end = chain[-1].related_model._meta.label
-        if not self.target_is_known:
-            return self._error(
-                'postgres_denormalize.E003',
-                f'The target of the field is not known, but `{self.denormalize_from}` ends at {end}.',
-            )
-        if chain[-1].related_model is not self.related_model:
-            return self._error(
-                'postgres_denormalize.E003',
-                f'The field points at {self.related_model._meta.label}, but `{self.denormalize_from}` ends at {end}.',
-            )
-        if chain[-1].target_field != self.target_field:
-            return self._error(
-                'postgres_denormalize.E003',
-                f'The field points at {end}.{self.target_field.name}, but `{self.denormalize_from}` ends at '
-                f'{end}.{chain[-1].target_field.name}. Declare the field with the same to_field as the last hop, or '
-                f'without one.',
-            )
+        if 'postgres_denormalize.E003' not in silenced:
+            if not self.target_is_known:
+                return self._error(
+                    'postgres_denormalize.E003',
+                    f'The target of the field is not known, but `{self.denormalize_from}` ends at {end}.',
+                )
+            if chain[-1].related_model is not self.related_model:
+                return self._error(
+                    'postgres_denormalize.E003',
+                    f'The field points at {self.related_model._meta.label}, but `{self.denormalize_from}` ends at '
+                    f'{end}.',
+                )
+            if chain[-1].target_field != self.target_field:
+                return self._error(
+                    'postgres_denormalize.E003',
+                    f'The field points at {end}.{self.target_field.name}, but `{self.denormalize_from}` ends at '
+                    f'{end}.{chain[-1].target_field.name}. Declare the field with the same to_field as the last hop, '
+                    f'or without one.',
+                )
 
         nullable = [hop.name for hop in chain[1:] if hop.null]
-        if nullable and not self.null:
+        if nullable and not self.null and 'postgres_denormalize.E004' not in silenced:
             return self._error(
                 'postgres_denormalize.E004',
                 f'`{self.denormalize_from}` crosses the nullable foreign key `{nullable[0]}`, so the trigger writes '
                 'NULL for every row where it is empty. Declare the field with null=True, or without null.',
             )
 
-        return self._check_on_delete_rule(chain)
+        return self._check_on_delete_rule(chain, silenced)
 
-    def _check_on_delete_rule(self, chain):
+    def _check_on_delete_rule(self, chain, silenced):
         """
-        Check the ``on_delete`` rule against the rule that the lookup path implies (see ``infer_on_delete``).
+        Check the ``on_delete`` rule against the rule that the lookup path implies (see ``infer_on_delete``), skipping
+        the checks in ``silenced``.
         """
         inferred, deciding_hop = infer_on_delete(chain)
         hop_label = f'{deciding_hop.model._meta.label}.{deciding_hop.name}'
         if inferred is None:
             if self.on_delete_is_known:
                 # A declared rule cannot be compared with a custom rule along the path.
+                return []
+            if 'postgres_denormalize.E008' in silenced:
                 return []
             return self._error(
                 'postgres_denormalize.E008',
@@ -475,7 +503,7 @@ class DenormalizedForeignKey(DenormalizedMixin, models.ForeignKey):
                 hint='Declare on_delete on the field.',
             )
         declared = self.remote_field.on_delete
-        if declared is not inferred:
+        if declared is not inferred and 'postgres_denormalize.W009' not in silenced:
             return self._warning(
                 'postgres_denormalize.W009',
                 f'The field declares on_delete={describe_rule(declared)}, but `{self.denormalize_from}` implies '
@@ -575,7 +603,9 @@ class DenormalizedField(DenormalizedMixin, models.Field):
             kwargs['base_field'] = self._base_field
         return name, path, args, kwargs
 
-    def _check_end_of_chain(self, chain):
+    def _check_end_of_chain(self, chain, silenced):
+        if 'postgres_denormalize.E005' in silenced:
+            return []
         source = chain[-1]
         if source.is_relation:
             return self._error(
@@ -681,10 +711,10 @@ def get_denormalized_fields(model):
     proxy model, therefore get no triggers, no drift filter and no backfill for the fields of the parent, because the
     triggers of the parent already keep those columns correct.
 
-    For an excluded model (see ``EXCLUDE_MODELS``) this returns no fields, so the model gets no triggers, no drift
-    filter and no backfill. The usual reason to exclude a model is an audit table that copies the fields of a tracked
-    model, including the denormalized ones. Its rows record the value that a copy had at the time, so no trigger may
-    rewrite them.
+    For an excluded model (see ``EXCLUDE_MODELS`` and ``EXCLUDE_MODELS_CALLBACK``) this returns no fields, so the model
+    gets no triggers, no drift filter and no backfill. The usual reason to exclude a model is an audit table that copies
+    the fields of a tracked model, including the denormalized ones. Its rows record the value that a copy had at the
+    time, so no trigger may rewrite them.
     """
     if conf.is_excluded(model):
         return []
