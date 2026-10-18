@@ -41,6 +41,7 @@ Release |version|.
     reference/settings
     reference/checks
     reference/api
+    reference/changelog
 
 
 Indices and tables
