@@ -7,9 +7,9 @@ Django project across PostgreSQL schemas and nodes. Both libraries work on their
 does not need DjanQuiltDB, or any familiarity with it.
 
 In a sharded project, the copies have to be checked and corrected in each shard, and a lookup path has to stay inside
-the shard. DjanQuiltDB's ``postgres-denormalize`` extra installs a plugin with helpers that find and correct out-of-date
-copies in one shard or in every shard. DjanQuiltDB's own system checks report a lookup path whose cascade trigger would
-write across shards::
+the shard. DjanQuiltDB's own system checks report a lookup path whose cascade trigger or fill trigger would write across
+shards. DjanQuiltDB's ``postgres-denormalize`` extra installs a plugin with helpers that find and correct out-of-date
+copies in one shard or in every shard::
 
     pip install djanquiltdb[postgres-denormalize]
 
