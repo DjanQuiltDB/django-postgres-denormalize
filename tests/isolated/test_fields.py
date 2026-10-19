@@ -8,9 +8,10 @@ from django.db.migrations.autodetector import MigrationAutodetector
 from django.db.migrations.operations import AlterField
 from django.db.migrations.state import ProjectState
 from django.db.models.functions import Length
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import isolate_apps
 
+from postgres_denormalize import conf
 from postgres_denormalize.fields import (
     INFERRED_TARGET,
     DenormalizedField,
@@ -868,3 +869,172 @@ class OnDeleteInferenceTestCase(SimpleTestCase):
         chain = field.resolve_chain()
 
         self.assertEqual(infer_on_delete(chain), (models.PROTECT, chain[0]))
+
+
+AUDIT_CALLBACK = 'catalog.exclusions.is_audit_model'
+
+
+@isolate_apps('isolated')
+@override_settings(POSTGRES_DENORMALIZE={'EXCLUDE_MODELS_CALLBACK': AUDIT_CALLBACK})
+class ExcludedModelChecksTestCase(SimpleTestCase):
+    """
+    The callback excludes every model whose name ends in ``audit``. Each test declares the same field on a leaf and on
+    an audit model of that leaf, and compares the checks of the two copies.
+    """
+
+    def declare_copies(self, suffix, make_field, owner_rule=models.PROTECT, owner_null=False, first_hop_null=False):
+        """
+        Declare Owner, Parent, Leaf and LeafAudit, each with ``suffix`` in its name, and return the field ``copy`` of
+        Leaf and of LeafAudit.
+
+        Parent.owner has the rule ``owner_rule``, and is nullable when ``owner_null`` is true. Leaf and LeafAudit each
+        have the foreign key ``parent``, which is nullable when ``first_hop_null`` is true, and the field that
+        ``make_field`` returns.
+        """
+        owner = type(f'Owner{suffix}', (models.Model,), {'__module__': __name__})
+        parent = type(
+            f'Parent{suffix}',
+            (models.Model,),
+            {'__module__': __name__, 'owner': models.ForeignKey(owner, on_delete=owner_rule, null=owner_null)},
+        )
+        copies = []
+        for name in (f'Leaf{suffix}', f'Leaf{suffix}Audit'):
+            leaf = type(
+                name,
+                (models.Model,),
+                {
+                    '__module__': __name__,
+                    'parent': models.ForeignKey(parent, on_delete=models.CASCADE, null=first_hop_null),
+                    'copy': make_field(),
+                },
+            )
+            copies.append(leaf._meta.get_field('copy'))
+        return copies
+
+    def check_ids(self, field):
+        return [message.id for message in field.check()]
+
+    def test_a_declared_rule_that_differs_from_the_path_is_muted_on_an_excluded_model(self):
+        """
+        Case: Parent.owner is PROTECT. Leaf and LeafAudit copy parent__owner with on_delete=DO_NOTHING, which an audit
+              package declares on every foreign key that it copies.
+        Expected: The copy on Leaf reports warning W009. The copy on LeafAudit reports nothing.
+        """
+        leaf, audit = self.declare_copies(
+            '', lambda: DenormalizedForeignKey('parent__owner', on_delete=models.DO_NOTHING, related_name='+')
+        )
+
+        self.assertEqual(self.check_ids(leaf), ['postgres_denormalize.W009'])
+        self.assertEqual(self.check_ids(audit), [])
+
+    def test_the_checks_that_compare_the_declaration_with_the_path_are_muted_on_an_excluded_model(self):
+        """
+        Case: Leaf and LeafAudit copy parent__owner three times: with a nullable first hop, with to=Parent, and with
+              null=False across the nullable hop Parent.owner.
+        Expected: The copy on Leaf reports E002, E003 and E004 in turn. The copy on LeafAudit reports nothing.
+        """
+        cases = [
+            (
+                'postgres_denormalize.E002',
+                {'first_hop_null': True},
+                lambda: DenormalizedForeignKey('parent__owner', on_delete=models.PROTECT, null=True, related_name='+'),
+            ),
+            (
+                'postgres_denormalize.E003',
+                {},
+                lambda: DenormalizedForeignKey(
+                    'parent__owner', on_delete=models.PROTECT, to='isolated.Parent1', related_name='+'
+                ),
+            ),
+            (
+                'postgres_denormalize.E004',
+                {'owner_null': True},
+                lambda: DenormalizedForeignKey('parent__owner', on_delete=models.PROTECT, null=False, related_name='+'),
+            ),
+        ]
+        for index, (check_id, options, make_field) in enumerate(cases):
+            with self.subTest(check_id=check_id):
+                leaf, audit = self.declare_copies(index, make_field, **options)
+
+                self.assertEqual(self.check_ids(leaf), [check_id])
+                self.assertEqual(self.check_ids(audit), [])
+
+    def test_the_checks_that_find_no_target_type_or_rule_are_still_reported_on_an_excluded_model(self):
+        """
+        Case: Leaf and LeafAudit copy parent__missing as a DenormalizedForeignKey and as a DenormalizedField. Then they
+              copy parent__owner without on_delete, while Parent.owner has a custom on_delete rule.
+        Expected: Both copies report E001, E001 and E008 in turn.
+        """
+        cases = [
+            ('postgres_denormalize.E001', {}, lambda: DenormalizedForeignKey('parent__missing', related_name='+')),
+            ('postgres_denormalize.E001', {}, lambda: DenormalizedField('parent__missing')),
+            (
+                'postgres_denormalize.E008',
+                {'owner_rule': custom_rule},
+                lambda: DenormalizedForeignKey('parent__owner', related_name='+'),
+            ),
+        ]
+        for index, (check_id, options, make_field) in enumerate(cases):
+            with self.subTest(index=index, check_id=check_id):
+                for field in self.declare_copies(index, make_field, **options):
+                    self.assertEqual(self.check_ids(field), [check_id])
+
+    def test_a_muted_check_does_not_hide_the_checks_after_it(self):
+        """
+        Case: Leaf and LeafAudit copy parent__owner as a DenormalizedField, through a nullable first hop. The path
+              ends at a foreign key, which a DenormalizedField cannot copy.
+        Expected: The copy on Leaf reports E002, the first problem. The copy on LeafAudit skips the muted E002 and
+                  reports E005.
+        """
+        leaf, audit = self.declare_copies('', lambda: DenormalizedField('parent__owner'), first_hop_null=True)
+
+        self.assertEqual(self.check_ids(leaf), ['postgres_denormalize.E002'])
+        self.assertEqual(self.check_ids(audit), ['postgres_denormalize.E005'])
+
+    def test_the_setting_chooses_the_checks_that_are_muted(self):
+        """
+        Case: EXCLUDE_MODELS_SILENCED_CHECKS is empty, and then lists every field check. Leaf and LeafAudit copy
+              parent__owner with on_delete=DO_NOTHING while Parent.owner is PROTECT, and copy parent__missing.
+        Expected: With the empty list, the copy on LeafAudit reports W009 and E001, as the copy on Leaf does. With every
+                  field check listed, the copies on LeafAudit report nothing, and the copies on Leaf still report W009
+                  and E001.
+        """
+        rule_copies = self.declare_copies(
+            'Rule', lambda: DenormalizedForeignKey('parent__owner', on_delete=models.DO_NOTHING, related_name='+')
+        )
+        path_copies = self.declare_copies('Path', lambda: DenormalizedForeignKey('parent__missing', related_name='+'))
+
+        def setting(silenced):
+            return override_settings(
+                POSTGRES_DENORMALIZE={
+                    'EXCLUDE_MODELS_CALLBACK': AUDIT_CALLBACK,
+                    'EXCLUDE_MODELS_SILENCED_CHECKS': silenced,
+                }
+            )
+
+        with setting([]):
+            for field in rule_copies:
+                self.assertEqual(self.check_ids(field), ['postgres_denormalize.W009'])
+            for field in path_copies:
+                self.assertEqual(self.check_ids(field), ['postgres_denormalize.E001'])
+
+        with setting(list(conf.FIELD_CHECKS)):
+            self.assertEqual(self.check_ids(rule_copies[0]), ['postgres_denormalize.W009'])
+            self.assertEqual(self.check_ids(path_copies[0]), ['postgres_denormalize.E001'])
+            self.assertEqual(self.check_ids(rule_copies[1]), [])
+            self.assertEqual(self.check_ids(path_copies[1]), [])
+
+    def test_the_checks_of_django_still_run_on_an_excluded_model(self):
+        """
+        Case: Leaf and LeafAudit copy parent__owner with on_delete=SET_NULL and null=False while Parent.owner is
+              PROTECT. Django's own checks refuse SET_NULL on a column that cannot be NULL.
+        Expected: The copy on Leaf reports Django's fields.E320 and W009. The copy on LeafAudit reports only
+                  fields.E320.
+        """
+        leaf, audit = self.declare_copies(
+            '',
+            lambda: DenormalizedForeignKey('parent__owner', on_delete=models.SET_NULL, null=False, related_name='+'),
+        )
+
+        self.assertEqual(self.check_ids(leaf), ['fields.E320', 'postgres_denormalize.W009'])
+        self.assertEqual(self.check_ids(audit), ['fields.E320'])

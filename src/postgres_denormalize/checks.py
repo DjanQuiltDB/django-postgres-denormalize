@@ -2,7 +2,9 @@
 System checks that look at the project as a whole rather than at one field.
 
 The field-level checks (a lookup path that does not resolve, a nullable hop, a target that differs from the path) are
-part of each field's own ``check()``. The checks here are registered under the ``postgres_denormalize`` tag:
+part of each field's own ``check()``. A field on an excluded model skips the field checks that
+``EXCLUDE_MODELS_SILENCED_CHECKS`` lists. The checks here skip excluded models altogether. They are registered under the
+``postgres_denormalize`` tag:
 
 - ``E301``: pgtrigger neither writes triggers into migrations nor installs them after ``migrate``, so the triggers that
   this package derives would never reach the database.

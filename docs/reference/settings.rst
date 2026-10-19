@@ -22,7 +22,8 @@ EXCLUDE_MODELS
 --------------
 
 A list of model labels, ``'app_label.ModelName'``, matched case-insensitively. This package skips the models that it
-lists: they get no triggers, no drift filter, no backfill and no project checks. By default it lists nothing. An entry
+lists: they get no triggers, no drift filter, no backfill and no project checks, and their fields skip the checks that
+``EXCLUDE_MODELS_SILENCED_CHECKS`` lists. By default it lists nothing. An entry
 that is not a string with exactly one dot raises ``ImproperlyConfigured``, and an entry that names no installed model is
 reported by ``postgres_denormalize.E401``. See :doc:`/guides/exclusions`.
 
@@ -34,6 +35,36 @@ A callable that takes a model class and returns ``True`` for a model to exclude,
 Use it when the models to exclude follow a rule, and not a list. A model is excluded when either this key or
 ``EXCLUDE_MODELS`` says so. It defaults to ``None``. A dotted path that cannot be imported, and a value that is not
 callable, raise ``ImproperlyConfigured``. See :doc:`/guides/exclusions` for what the callback is called with.
+
+
+EXCLUDE_MODELS_SILENCED_CHECKS
+------------------------------
+
+A list of the field checks (see :doc:`/reference/checks`) that a field on an excluded model skips, as check ids such as
+``'postgres_denormalize.W009'``, the way ``SILENCED_SYSTEM_CHECKS`` names them. It does not change the checks of a
+field on any other model. The default skips the checks that compare the declaration with the lookup path:
+
+.. code-block:: python
+
+    # settings.py
+    POSTGRES_DENORMALIZE = {
+        'EXCLUDE_MODELS_SILENCED_CHECKS': [
+            'postgres_denormalize.E002',
+            'postgres_denormalize.E003',
+            'postgres_denormalize.E004',
+            'postgres_denormalize.W009',
+        ],
+    }
+
+No trigger writes the column of an excluded model, so these checks say nothing useful there. An audit package, for
+example, declares ``on_delete=DO_NOTHING`` on every foreign key that it copies, and W009 would report each copy. The
+field still infers its target, its column type and its ``on_delete`` rule from the lookup path, so by default it still
+reports a path that cannot give them: ``E001`` and ``E005`` to ``E008``. An empty list runs every field check on
+excluded models, and a list of all nine skips them all.
+
+Only the ids of the field checks, ``E001`` to ``E008`` and ``W009``, can be listed, because the project checks skip
+excluded models altogether. Any other entry, and a value that is not a list, raise ``ImproperlyConfigured``. Changing
+the list changes no trigger, so ``makemigrations`` writes no migration for it.
 
 
 REDUNDANT_COPY_CHECK

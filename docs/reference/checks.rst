@@ -36,6 +36,12 @@ Each denormalized field checks its own declaration:
                                  See :doc:`/guides/fields`.
 ================================ =======================================================================================
 
+A field on an excluded model (see :doc:`/guides/exclusions`) skips the checks that ``EXCLUDE_MODELS_SILENCED_CHECKS``
+lists. By default, these are ``E002``, ``E003``, ``E004`` and ``W009``, which compare the declaration with the lookup
+path. No trigger writes the column of an excluded model, so they say nothing useful there. The field still infers its
+target, column type and ``on_delete`` rule from the path, so the other checks still run. See
+:doc:`/reference/settings`.
+
 
 Project checks
 --------------

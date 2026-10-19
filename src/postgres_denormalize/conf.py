@@ -5,11 +5,15 @@ package reads it.
 Every key is optional::
 
     POSTGRES_DENORMALIZE = {
-        # Models that this package skips: no triggers, no drift filter, no backfill, no project checks. This is for
-        # models that have denormalized fields on purpose without keeping them in sync, such as audit tables. A model is
-        # excluded when either key says so.
+        # Models that this package skips: no triggers, no drift filter, no backfill, no project checks, and only some
+        # field checks. This is for models that have denormalized fields on purpose without keeping them in sync, such
+        # as audit tables. A model is excluded when either key says so.
         'EXCLUDE_MODELS': ['tenancy.TaskAudit'],  # model labels, matched case-insensitively
         'EXCLUDE_MODELS_CALLBACK': 'myproject.audit.is_audit_model',  # a callable, or a dotted path to one
+        # The field checks that the fields of excluded models skip, as check ids. By default, these are E002, E003,
+        # E004 and W009, which compare the declaration with the lookup path. That matters only for a field that a
+        # trigger writes. Changing this list changes no trigger, so makemigrations writes no migration for it.
+        'EXCLUDE_MODELS_SILENCED_CHECKS': ['postgres_denormalize.W009'],
         'REDUNDANT_COPY_CHECK': {
             'LEVEL': 'warning',  # or 'error', or 'off'
             'APPS': None,  # app labels to check; None checks every app outside site-packages
@@ -36,6 +40,12 @@ SETTING_NAME = 'POSTGRES_DENORMALIZE'
 
 LEVELS = ('off', 'warning', 'error')
 
+# The ids of the checks that each denormalized field runs on its own declaration. EXCLUDE_MODELS_SILENCED_CHECKS can
+# list only these, because the project checks skip excluded models altogether.
+FIELD_CHECKS = tuple(
+    f'postgres_denormalize.{code}' for code in ('E001', 'E002', 'E003', 'E004', 'E005', 'E006', 'E007', 'E008', 'W009')
+)
+
 DEFAULT_REDUNDANT_COPY_CHECK = {
     'LEVEL': 'warning',
     'APPS': None,
@@ -46,6 +56,14 @@ DEFAULT_REDUNDANT_COPY_CHECK = {
 DEFAULTS = {
     'EXCLUDE_MODELS': (),
     'EXCLUDE_MODELS_CALLBACK': None,
+    # The checks that compare the declaration with the lookup path. The others find a path that gives the field no
+    # target, column type or on_delete rule, which a field on an excluded model needs too.
+    'EXCLUDE_MODELS_SILENCED_CHECKS': (
+        'postgres_denormalize.E002',
+        'postgres_denormalize.E003',
+        'postgres_denormalize.E004',
+        'postgres_denormalize.W009',
+    ),
     'REDUNDANT_COPY_CHECK': DEFAULT_REDUNDANT_COPY_CHECK,
     'ORDERING_CHECK_LEVEL': 'warning',
     'ISOLATION_CHECK_LEVEL': 'warning',
@@ -137,6 +155,16 @@ def validate_settings():
             f'{SETTING_NAME}["EXCLUDE_MODELS_CALLBACK"] must be a callable or a dotted path to one.'
         )
 
+    silenced = get_setting('EXCLUDE_MODELS_SILENCED_CHECKS')
+    if isinstance(silenced, str) or not isinstance(silenced, (list, tuple, set, frozenset)):
+        raise ImproperlyConfigured(f'{SETTING_NAME}["EXCLUDE_MODELS_SILENCED_CHECKS"] must be a list of check ids.')
+    unknown = [check_id for check_id in silenced if check_id not in FIELD_CHECKS]
+    if unknown:
+        raise ImproperlyConfigured(
+            f'{SETTING_NAME}["EXCLUDE_MODELS_SILENCED_CHECKS"] contains {", ".join(map(repr, unknown))}, but it can '
+            f'list only the field checks: {", ".join(FIELD_CHECKS)}.'
+        )
+
     redundant = configured.get('REDUNDANT_COPY_CHECK', {})
     if not isinstance(redundant, dict):
         raise ImproperlyConfigured(f'{SETTING_NAME}["REDUNDANT_COPY_CHECK"] must be a dict.')
@@ -167,4 +195,4 @@ def _validate_level(key, value):
         raise ImproperlyConfigured(f'{SETTING_NAME}["{key}"] is {value!r}; use one of {", ".join(LEVELS)}.')
 
 
-__all__ = ['DEFAULTS', 'LEVELS', 'get_setting', 'is_excluded', 'validate_settings']
+__all__ = ['DEFAULTS', 'FIELD_CHECKS', 'LEVELS', 'get_setting', 'is_excluded', 'validate_settings']

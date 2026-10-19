@@ -1,3 +1,8 @@
+v1.0.1 (2026-10-19)
+-------------------
+Altered:
+ * Fixed system checks incorrectly firing on excluded models.
+
 v1.0.0 (2026-10-18)
 -------------------
 Added:

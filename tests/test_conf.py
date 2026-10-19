@@ -15,6 +15,15 @@ class GetSettingTestCase(SimpleTestCase):
         """
         self.assertEqual(conf.get_setting('EXCLUDE_MODELS'), ())
         self.assertIsNone(conf.get_setting('EXCLUDE_MODELS_CALLBACK'))
+        self.assertEqual(
+            conf.get_setting('EXCLUDE_MODELS_SILENCED_CHECKS'),
+            (
+                'postgres_denormalize.E002',
+                'postgres_denormalize.E003',
+                'postgres_denormalize.E004',
+                'postgres_denormalize.W009',
+            ),
+        )
         self.assertEqual(conf.get_setting('ORDERING_CHECK_LEVEL'), 'warning')
         self.assertEqual(conf.get_setting('ISOLATION_CHECK_LEVEL'), 'warning')
         self.assertEqual(conf.get_setting('REDUNDANT_COPY_CHECK'), conf.DEFAULT_REDUNDANT_COPY_CHECK)
@@ -156,6 +165,40 @@ class ValidateSettingsTestCase(SimpleTestCase):
         Expected: No error.
         """
         conf.validate_settings()
+
+    def test_refuses_silenced_checks_that_are_not_a_list_of_field_checks(self):
+        """
+        Case: EXCLUDE_MODELS_SILENCED_CHECKS is a string, and then a list with the project check W101 and the
+              misspelt 'postgres_denormalize.W9'.
+        Expected: For the string, an ImproperlyConfigured error that asks for a list of check ids. For the list, an
+                  ImproperlyConfigured error that names both entries and the field checks that can be listed.
+        """
+        self.assertRefused(
+            {'EXCLUDE_MODELS_SILENCED_CHECKS': 'postgres_denormalize.W009'}, 'must be a list of check ids'
+        )
+        with override_settings(
+            POSTGRES_DENORMALIZE={
+                'EXCLUDE_MODELS_SILENCED_CHECKS': ['postgres_denormalize.W101', 'postgres_denormalize.W9']
+            }
+        ):
+            with self.assertRaises(ImproperlyConfigured) as raised:
+                conf.validate_settings()
+        message = str(raised.exception)
+        self.assertIn("'postgres_denormalize.W101', 'postgres_denormalize.W9'", message)
+        self.assertIn('postgres_denormalize.E001', message)
+        self.assertIn('postgres_denormalize.W009', message)
+
+    def test_accepts_silenced_checks_from_none_to_every_field_check(self):
+        """
+        Case: EXCLUDE_MODELS_SILENCED_CHECKS is an empty list, and then a list of every field check.
+        Expected: No error for either.
+        """
+        for silenced in ([], list(conf.FIELD_CHECKS)):
+            with (
+                self.subTest(silenced=silenced),
+                override_settings(POSTGRES_DENORMALIZE={'EXCLUDE_MODELS_SILENCED_CHECKS': silenced}),
+            ):
+                conf.validate_settings()
 
     def test_refuses_a_redundant_copy_check_that_is_not_a_dict(self):
         """
