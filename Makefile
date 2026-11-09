@@ -8,8 +8,9 @@ BIN    := $(VENV)/bin
 PG17 ?= postgresql://postgres:postgres@localhost:5447/test_db
 PG18 ?= postgresql://postgres:postgres@localhost:5449/test_db
 
-# Every Django minor the classifiers claim. Each has its own pinned tox factor.
-DJANGOS ?= dj60 dj61
+# Every Python and Django pair that is tested. Each Django minor has its own pinned tox factor. Python 3.15 runs on
+# Django 6.1 only, because Django 6.0 does not support Python 3.15.
+LEGS ?= py314-dj60 py314-dj61 py315-dj61
 
 .PHONY: help venv test test-pg17 test-pg18 lint format docs build clean databases docker-test
 
@@ -39,10 +40,10 @@ databases:
 test: test-pg17 test-pg18
 
 test-pg17: venv
-	DATABASE_URL=$(PG17) $(BIN)/tox -e $(shell echo $(DJANGOS) | tr ' ' '\n' | sed 's/^/py314-/;s/$$/-pg17/' | paste -sd,)
+	DATABASE_URL=$(PG17) $(BIN)/tox -e $(shell echo $(LEGS) | tr ' ' '\n' | sed 's/$$/-pg17/' | paste -sd,)
 
 test-pg18: venv
-	DATABASE_URL=$(PG18) $(BIN)/tox -e $(shell echo $(DJANGOS) | tr ' ' '\n' | sed 's/^/py314-/;s/$$/-pg18/' | paste -sd,)
+	DATABASE_URL=$(PG18) $(BIN)/tox -e $(shell echo $(LEGS) | tr ' ' '\n' | sed 's/$$/-pg18/' | paste -sd,)
 
 lint: venv
 	$(BIN)/tox -e ruff

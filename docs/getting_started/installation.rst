@@ -33,7 +33,7 @@ See :doc:`/reference/settings` for every key, and :doc:`/guides/fields` for decl
 Requirements
 ------------
 
-* Python 3.14
+* Python 3.14 or 3.15
 * Django 6.0 or 6.1
 * PostgreSQL 17 or 18
 * `django-pgtrigger <https://django-pgtrigger.readthedocs.io/>`_ 4.17 or later, which this package builds on
