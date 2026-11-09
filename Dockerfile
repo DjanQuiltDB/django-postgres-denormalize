@@ -40,4 +40,12 @@ COPY tests ./tests
 COPY docs ./docs
 COPY assets ./assets
 
+# Compose runs the container as the host user, so that what it writes to the mounted checkout is not owned by root.
+# That user has no home directory in the image, so HOME points at /tmp, where pip and virtualenv can keep their caches.
+# Compose mounts an anonymous volume on each of these directories, and a new volume takes the owner and mode of the
+# directory in the image, so the directories are made writable by any user.
+ENV HOME=/tmp
+RUN mkdir -p .tox .venv .ruff_cache && \
+    chmod 1777 .tox .venv .ruff_cache
+
 CMD ["tox"]
