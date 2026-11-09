@@ -18,3 +18,8 @@ graft assets
 prune docs/_build
 global-exclude *.py[cod]
 global-exclude __pycache__
+# A local test run leaves its coverage data and any HTML report in the test project; they are not part of the release.
+global-exclude .coverage
+global-exclude .coverage.*
+global-exclude coverage.xml
+prune tests/htmlcov

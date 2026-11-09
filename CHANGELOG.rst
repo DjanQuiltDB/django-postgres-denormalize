@@ -1,3 +1,12 @@
+v1.0.2 (2026-11-09)
+-------------------
+Added:
+ * Coverage badge in the README.
+
+Altered:
+ * Fixed the documentation badge in the README rendering as a broken image on GitHub.
+ * Fixed a minor packaging bug where the sdist would ship coverage data if present.
+
 v1.0.1 (2026-10-19)
 -------------------
 Altered:
