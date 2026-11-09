@@ -26,7 +26,7 @@ django-postgres-denormalize
     :target: https://github.com/djanquiltdb/django-postgres-denormalize/actions/workflows/ci.yml
     :alt: CI
 
-.. image:: https://readthedocs.org/projects/django-postgres-denormalize/badge/?version=latest
+.. image:: https://img.shields.io/readthedocs/django-postgres-denormalize/latest
     :target: https://django-postgres-denormalize.readthedocs.io/
     :alt: Documentation
 
