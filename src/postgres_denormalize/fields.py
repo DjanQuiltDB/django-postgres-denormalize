@@ -385,7 +385,7 @@ class DenormalizedForeignKey(DenormalizedMixin, models.ForeignKey):
             if not is_forward_hop(hop):
                 return
             refuse_hop(owner, hop, self.denormalize_from, index)
-        except FieldDoesNotExist, PathRefused:
+        except (FieldDoesNotExist, PathRefused):
             return
         hops = (*hops, hop)
         if index == len(segments) - 1:
@@ -589,7 +589,7 @@ class DenormalizedField(DenormalizedMixin, models.Field):
             return False
         try:
             chain = self.resolve_chain()
-        except FieldDoesNotExist, ValueError:
+        except (FieldDoesNotExist, ValueError):
             return False
         if not _is_copyable_column(chain[-1]):
             return False

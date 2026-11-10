@@ -118,7 +118,7 @@ def resolvable_fields(model):
     for field in get_denormalized_fields(model):
         try:
             chain = field.resolve_chain(model)
-        except FieldDoesNotExist, ValueError:
+        except (FieldDoesNotExist, ValueError):
             continue
         resolvable.append((field, chain))
     return resolvable
