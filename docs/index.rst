@@ -6,6 +6,36 @@ filtering and unique constraints can cover values that are otherwise several joi
 
 Release |version|.
 
+.. container:: badges
+
+    .. image:: https://github.com/DjanQuiltDB/django-postgres-denormalize/actions/workflows/ci.yml/badge.svg
+        :target: https://github.com/DjanQuiltDB/django-postgres-denormalize/actions/workflows/ci.yml
+        :alt: CI
+
+    .. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/django-postgres-denormalize/master
+        :target: https://app.codecov.io/gh/DjanQuiltDB/django-postgres-denormalize
+        :alt: Coverage
+
+    .. image:: https://img.shields.io/pypi/v/django-postgres-denormalize.svg
+        :target: https://pypi.org/project/django-postgres-denormalize/
+        :alt: django-postgres-denormalize on PyPI
+
+    .. image:: https://img.shields.io/pypi/pyversions/django-postgres-denormalize.svg
+        :target: https://pypi.org/project/django-postgres-denormalize/
+        :alt: Supported Python versions
+
+    .. image:: https://img.shields.io/pypi/frameworkversions/django/django-postgres-denormalize.svg
+        :target: https://pypi.org/project/django-postgres-denormalize/
+        :alt: Supported Django versions
+
+    .. image:: https://img.shields.io/badge/postgres-17%20%7C%2018-4169e1?logo=postgresql&logoColor=white
+        :target: https://www.postgresql.org/
+        :alt: Supported PostgreSQL versions
+
+    .. image:: https://img.shields.io/pypi/l/django-postgres-denormalize.svg
+        :target: https://github.com/DjanQuiltDB/django-postgres-denormalize/blob/master/LICENSE
+        :alt: BSD-3-Clause licence
+
 
 .. toctree::
     :maxdepth: 2
