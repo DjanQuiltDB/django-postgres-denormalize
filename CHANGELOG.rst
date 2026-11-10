@@ -1,3 +1,9 @@
+v1.1.0 (2026-11-10)
+-------------------
+Added:
+ * Support for Python 3.12 and 3.13.
+ * Support for Python 3.15 (Django 6.1.3 or later).
+
 v1.0.2 (2026-11-09)
 -------------------
 Added:

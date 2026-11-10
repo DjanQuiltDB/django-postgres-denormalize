@@ -8,17 +8,20 @@ BIN    := $(VENV)/bin
 PG17 ?= postgresql://postgres:postgres@localhost:5447/test_db
 PG18 ?= postgresql://postgres:postgres@localhost:5449/test_db
 
-# Every Django minor the classifiers claim. Each has its own pinned tox factor.
-DJANGOS ?= dj60 dj61
+# The Python and Django pairs tested on each PostgreSQL. Each Django minor has its own pinned tox factor. Python 3.15
+# runs on Django 6.1 only, because Django 6.0 does not support Python 3.15. PostgreSQL 17 is tested on the newest
+# Python only.
+PG18_LEGS ?= py312-dj60 py312-dj61 py313-dj60 py313-dj61 py314-dj60 py314-dj61 py315-dj61
+PG17_LEGS ?= py315-dj61
 
 .PHONY: help venv test test-pg17 test-pg18 lint format docs build clean databases docker-test
 
 help:
 	@echo 'venv         Create $(VENV) and install the package with its dev extras'
 	@echo 'databases    Start the Postgres containers the tests need'
-	@echo 'test         Run the suite against every Django and Postgres version'
-	@echo 'test-pg17    Run the suite against PostgreSQL 17 only, on every Django'
-	@echo 'test-pg18    Run the suite against PostgreSQL 18 only, on every Django'
+	@echo 'test         Run the suite against every tested Python, Django and Postgres version'
+	@echo 'test-pg17    Run the suite against PostgreSQL 17 only, on the newest Python'
+	@echo 'test-pg18    Run the suite against PostgreSQL 18 only, on every Python and Django'
 	@echo 'lint         Check linting and formatting'
 	@echo 'format       Apply formatting and safe lint fixes'
 	@echo 'docs         Build the documentation'
@@ -39,10 +42,10 @@ databases:
 test: test-pg17 test-pg18
 
 test-pg17: venv
-	DATABASE_URL=$(PG17) $(BIN)/tox -e $(shell echo $(DJANGOS) | tr ' ' '\n' | sed 's/^/py314-/;s/$$/-pg17/' | paste -sd,)
+	DATABASE_URL=$(PG17) $(BIN)/tox -e $(shell echo $(PG17_LEGS) | tr ' ' '\n' | sed 's/$$/-pg17/' | paste -sd,)
 
 test-pg18: venv
-	DATABASE_URL=$(PG18) $(BIN)/tox -e $(shell echo $(DJANGOS) | tr ' ' '\n' | sed 's/^/py314-/;s/$$/-pg18/' | paste -sd,)
+	DATABASE_URL=$(PG18) $(BIN)/tox -e $(shell echo $(PG18_LEGS) | tr ' ' '\n' | sed 's/$$/-pg18/' | paste -sd,)
 
 lint: venv
 	$(BIN)/tox -e ruff
@@ -58,7 +61,7 @@ build: venv
 	$(BIN)/tox -e build
 
 docker-test:
-	docker compose run --rm test
+	HOST_UID=$(shell id -u) HOST_GID=$(shell id -g) docker compose run --rm test
 
 clean:
 	rm -rf build dist docs/_build .tox .ruff_cache htmlcov .coverage
