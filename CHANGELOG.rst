@@ -1,3 +1,8 @@
+v1.1.1 (unreleased)
+-------------------
+Added:
+ * Badges to documentation overview.
+
 v1.1.0 (2026-11-10)
 -------------------
 Added:
