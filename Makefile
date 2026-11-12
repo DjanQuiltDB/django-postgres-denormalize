@@ -8,11 +8,8 @@ BIN    := $(VENV)/bin
 PG17 ?= postgresql://postgres:postgres@localhost:5447/test_db
 PG18 ?= postgresql://postgres:postgres@localhost:5449/test_db
 
-# The Python and Django pairs tested on each PostgreSQL. Each Django minor has its own pinned tox factor. Python 3.15
-# runs on Django 6.1 only, because Django 6.0 does not support Python 3.15. PostgreSQL 17 is tested on the newest
-# Python only.
-PG18_LEGS ?= py312-dj60 py312-dj61 py313-dj60 py313-dj61 py314-dj60 py314-dj61 py315-dj61
-PG17_LEGS ?= py315-dj61
+# The env_list in pyproject.toml lists the tested combinations of Python, Django and PostgreSQL. The test targets select
+# the environments of each PostgreSQL by the pg17/pg18 factor of their names.
 
 .PHONY: help venv test test-pg17 test-pg18 lint format docs build clean databases docker-test
 
@@ -42,10 +39,10 @@ databases:
 test: test-pg17 test-pg18
 
 test-pg17: venv
-	DATABASE_URL=$(PG17) $(BIN)/tox -e $(shell echo $(PG17_LEGS) | tr ' ' '\n' | sed 's/$$/-pg17/' | paste -sd,)
+	DATABASE_URL=$(PG17) $(BIN)/tox run -f pg17
 
 test-pg18: venv
-	DATABASE_URL=$(PG18) $(BIN)/tox -e $(shell echo $(PG18_LEGS) | tr ' ' '\n' | sed 's/$$/-pg18/' | paste -sd,)
+	DATABASE_URL=$(PG18) $(BIN)/tox run -f pg18
 
 lint: venv
 	$(BIN)/tox -e ruff
